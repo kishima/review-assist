@@ -7,4 +7,6 @@ export * from './index.js';
 export * from './outline.js';
 export * from './parser.js';
 export * from './resolve.js';
+export * from './tablewidth.js';
 export * from './types.js';
+export * from './width.js';

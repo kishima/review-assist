@@ -1,7 +1,11 @@
-// 診断。索引を受け取って、ファイル 1 本分の診断を作る（段階 1: 参照）。
+// 診断。索引を受け取って、ファイル 1 本分の診断を作る。
+// 段階 1（参照切れ・参照されていない表）と段階 2（規則・コードの行長・表の幅）の両方。
+import { matchesAny } from './glob.js';
 import type { ReviewIndex } from './index.js';
 import { resolveRefDetailed, isReferenceOp, splitChapterPrefix } from './resolve.js';
-import type { Diagnostic, ParsedFile, Span } from './types.js';
+import { estimateTable } from './tablewidth.js';
+import type { Diagnostic, ParsedFile, Severity, Span } from './types.js';
+import { displayWidth } from './width.js';
 
 export const CODES = {
   brokenRef: 'broken-ref',
@@ -9,6 +13,10 @@ export const CODES = {
   ambiguousRef: 'ambiguous-ref',
   unreferencedTable: 'unreferenced-table',
   duplicateId: 'duplicate-id',
+  rule: 'rule',
+  codeLineLength: 'code-line-length',
+  tableWidth: 'table-width',
+  todo: 'todo',
 } as const;
 
 const OP_LABEL: Record<string, string> = {
@@ -135,11 +143,164 @@ export function duplicateIdDiagnostics(index: ReviewIndex): Diagnostic[] {
   return out;
 }
 
+/**
+ * 規則（段階 2）を当てるための、行ごとの「地の文」「コード」の切り出し。
+ * 地の文 = ブロックの本体でも `#@#` でもない行。`//...` の行はキャプションの引数だけ。
+ * これで地の文を切り出しておけば、規則の正規表現は素の本文だけを見ればよい。
+ */
+export function sliceForScope(parsed: ParsedFile, scope: 'prose' | 'code' | 'all'): { line: number; start: number; text: string }[] {
+  const out: { line: number; start: number; text: string }[] = [];
+  for (let ln = 0; ln < parsed.lines.length; ln++) {
+    const kind = parsed.lineKinds[ln];
+    const line = parsed.lines[ln];
+    if (scope === 'all') {
+      if (kind === 'comment') continue;
+      out.push({ line: ln, start: 0, text: line });
+      continue;
+    }
+    if (scope === 'code') {
+      if (kind === 'code') out.push({ line: ln, start: 0, text: line });
+      continue;
+    }
+    // prose
+    if (kind === 'prose') out.push({ line: ln, start: 0, text: line });
+    else if (kind === 'directive') {
+      for (const s of parsed.directiveProseSpans) {
+        if (s.line === ln) out.push({ line: ln, start: s.start, text: line.slice(s.start, s.end) });
+      }
+    }
+  }
+  return out;
+}
+
+/** `.review-assist.json` の `rules`（段階 2）。 */
+export function ruleDiagnostics(index: ReviewIndex, parsed: ParsedFile): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  index.config.rules.forEach((rule, i) => {
+    if (rule.allowIn && matchesAny(parsed.file, rule.allowIn)) return;
+    let re: RegExp;
+    try {
+      const flags = rule.flags ?? '';
+      re = new RegExp(rule.pattern, flags.includes('g') ? flags : flags + 'g');
+    } catch (e) {
+      out.push({
+        file: parsed.file,
+        span: span(0, 0, 0),
+        severity: 'error',
+        code: `${CODES.rule}.${rule.id ?? i}`,
+        message: `規則の正規表現が壊れている: ${rule.pattern}（${e instanceof Error ? e.message : String(e)}）`,
+      });
+      return;
+    }
+    const severity: Severity = rule.severity ?? 'warning';
+    for (const slice of sliceForScope(parsed, rule.scope ?? 'prose')) {
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(slice.text)) !== null) {
+        const start = slice.start + m.index;
+        out.push({
+          file: parsed.file,
+          span: span(slice.line, start, start + Math.max(m[0].length, 1)),
+          severity,
+          code: `${CODES.rule}.${rule.id ?? i}`,
+          message: rule.message,
+        });
+        if (m[0].length === 0) re.lastIndex++;
+      }
+    }
+  });
+  return out;
+}
+
+/**
+ * コードブロックの行長（段階 2、組込み）。
+ *
+ * 数え方は既定で「文字数」（全角も 1）。根拠: book_mruby3/CLAUDE.md「紙面幅の制約」は
+ * 「1 行 83 文字を超えると右にはみ出す」「**1 行 80 文字以内**にする」と文字数で書いており、
+ * 実際に和文コメント入りの行（例: contents/vm.re:408 は 73 文字 / 半角換算 85）を含む
+ * 原稿が `Overfull hbox` 0 でビルドできている。つまり `alltt` の和文は半角 2 個分では無い。
+ * 半角換算で数えたい場合は設定 `codeLineWidth: "halfwidth"`。
+ */
+export function codeLineDiagnostics(index: ReviewIndex, parsed: ParsedFile): Diagnostic[] {
+  const limit = index.config.maxCodeLineLength;
+  if (limit <= 0) return [];
+  const halfwidth = index.config.codeLineWidth === 'halfwidth';
+  const out: Diagnostic[] = [];
+  for (let ln = 0; ln < parsed.lines.length; ln++) {
+    if (parsed.lineKinds[ln] !== 'code') continue;
+    const line = parsed.lines[ln];
+    const w = halfwidth ? displayWidth(line) : [...line].length;
+    if (w <= limit) continue;
+    out.push({
+      file: parsed.file,
+      span: span(ln, 0, line.length),
+      severity: 'warning',
+      code: CODES.codeLineLength,
+      message: `コードブロックの行が ${w} ${halfwidth ? '文字（半角換算）' : '文字'}で上限 ${limit} を超えている`,
+    });
+  }
+  return out;
+}
+
+/** 表の幅（段階 2、組込み）。 */
+export function tableWidthDiagnostics(index: ReviewIndex, parsed: ParsedFile): Diagnostic[] {
+  if (index.config.tableWidth.enable === false) return [];
+  const out: Diagnostic[] = [];
+  for (const block of parsed.blocks) {
+    if (block.kind !== 'table' && block.kind !== 'imgtable') continue;
+    const est = estimateTable(block, {
+      limits: index.config.tableWidth.limits,
+      charWidth: index.config.tableWidth.charWidth,
+    });
+    if (!est || !est.overflow) continue;
+    const detail = est.widths.map((w) => w.toFixed(3)).join(' + ');
+    const how = est.hasTsize
+      ? '`//tsize` の P{} を狭めるか、長いセルを短くする'
+      : '`//tsize` を付けて長い列を `P{幅}` にする';
+    out.push({
+      file: parsed.file,
+      span: span(block.span.start.line, 0, parsed.lines[block.span.start.line].length),
+      severity: 'warning',
+      code: CODES.tableWidth,
+      message:
+        `表 \`${block.id ?? ''}\`（${est.columns} 列）の幅の見積もりが ${est.total.toFixed(3)} で、` +
+        `上限 ${est.limit.toFixed(3)} を超えている（${detail}）。` +
+        `一番広いのは ${est.widestColumn + 1} 列目「${est.widestCell.slice(0, 24)}」。${how}`,
+    });
+  }
+  return out;
+}
+
+/** `#@#` の中の TODO（段階 2、組込み）。 */
+export function todoDiagnostics(index: ReviewIndex, parsed: ParsedFile): Diagnostic[] {
+  if (!index.config.todoComments) return [];
+  const out: Diagnostic[] = [];
+  for (let ln = 0; ln < parsed.lines.length; ln++) {
+    if (parsed.lineKinds[ln] !== 'comment') continue;
+    const m = /TODO/.exec(parsed.lines[ln]);
+    if (!m) continue;
+    out.push({
+      file: parsed.file,
+      span: span(ln, m.index, parsed.lines[ln].length),
+      severity: 'info',
+      code: CODES.todo,
+      message: parsed.lines[ln].replace(/^#@#\s*/, '').trim(),
+    });
+  }
+  return out;
+}
+
 /** ファイル 1 本分の、索引全体を見なくてよい診断。 */
 export function diagnoseFile(index: ReviewIndex, file: string): Diagnostic[] {
   const parsed = index.files.get(file);
   if (!parsed) return [];
-  return referenceDiagnostics(index, parsed);
+  return [
+    ...referenceDiagnostics(index, parsed),
+    ...ruleDiagnostics(index, parsed),
+    ...codeLineDiagnostics(index, parsed),
+    ...tableWidthDiagnostics(index, parsed),
+    ...todoDiagnostics(index, parsed),
+  ];
 }
 
 /** ワークスペース全体。 */

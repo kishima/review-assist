@@ -101,10 +101,10 @@ test('loadConfig: 知っている項目だけを取り込む', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ra-'));
   fs.writeFileSync(
     path.join(dir, '.review-assist.json'),
-    JSON.stringify({ contentDir: 'src', warnUnreferencedTables: false, 知らない項目: 1 })
+    JSON.stringify({ maxCodeLineLength: 100, tableWidth: { charWidth: 0.02 }, 知らない項目: 1 })
   );
   const c = loadConfig(dir).config;
-  assert.strictEqual(c.contentDir, 'src');
-  assert.strictEqual(c.warnUnreferencedTables, false);
-  assert.deepStrictEqual(c.chapters, {}); // 既定値が残る
+  assert.strictEqual(c.maxCodeLineLength, 100);
+  assert.strictEqual(c.tableWidth.charWidth, 0.02);
+  assert.strictEqual(c.tableWidth.enable, true); // 既定値が残る
 });
