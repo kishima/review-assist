@@ -1,0 +1,78 @@
+{
+  "name": "review-assist",
+  "displayName": "Review Assist",
+  "description": "Re:VIEW の原稿を見直すための補助（索引・定義へ移動・ホバー・アウトライン・参照切れと規則の診断）",
+  "version": "0.1.0",
+  "publisher": "kishima",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kishima/review-assist.git"
+  },
+  "homepage": "https://github.com/kishima/review-assist#readme",
+  "bugs": {
+    "url": "https://github.com/kishima/review-assist/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=18"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:review",
+    "workspaceContains:**/catalog.yml"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "review",
+        "aliases": [
+          "Re:VIEW",
+          "review"
+        ],
+        "extensions": [
+          ".re"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "reviewAssist.reindex",
+        "title": "Review Assist: ワークスペースを索引し直す"
+      },
+      {
+        "command": "reviewAssist.showIndexStats",
+        "title": "Review Assist: 索引の状態を表示する"
+      }
+    ],
+    "configuration": {
+      "title": "Review Assist",
+      "properties": {
+        "reviewAssist.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "拡張を有効にする"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node esbuild.mjs && node --test test/*.test.js",
+    "cli": "node dist/cli.js",
+    "package": "node esbuild.mjs && vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
