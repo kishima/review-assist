@@ -14,6 +14,7 @@ src/core/        VS Code に依存しない層。判断はすべてここにあ�
   tablewidth.ts  表の幅の見積もり
   width.ts       半角換算の文字幅
   outline.ts     アウトラインの木
+  pdfpages.ts    索引 JSON → カーソル位置のページ番号
   diagnostics.ts 診断
   all.ts         テストが読む口（dist/core.js になる）
 src/extension.ts VS Code の型に写すだけの層

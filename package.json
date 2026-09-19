@@ -65,7 +65,7 @@
     }
   },
   "scripts": {
-    "compile": "node esbuild.mjs",
+    "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node esbuild.mjs && node --test test/*.test.js",

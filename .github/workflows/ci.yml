@@ -1,0 +1,41 @@
+# push と PR でテストと .vsix の作成。タグ v* のときは Release に .vsix を付ける。
+# 実物の原稿（book_mruby3）に対する確認は、原稿が隣に無いので飛ぶ（test/book_mruby3.test.js）。
+name: CI
+
+on:
+  push:
+    # 作業は main に直接入るので、push は main とタグだけを見る。枝は PR で回る
+    # （両方に '**' を書くと、PR のある枝で同じものが 2 回回る）
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write # タグのときに Release を作る
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # package.json の engines は node >=18。VS Code 1.85 は Electron 25 / Node 18 で、
+          # esbuild の target もそこに合わせてある。CI は今のところ壊れにくい 20 で回す
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: '*.vsix'
+          if-no-files-found: error
+      # Release は runner に入っている gh で作る（第三者の action を増やさない）
+      - name: Release に .vsix を付ける
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes ./*.vsix

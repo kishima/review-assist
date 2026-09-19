@@ -13,6 +13,14 @@ Re:VIEW の原稿を見直すための VS Code 拡張。原稿全体を索引し
 
 ## 入れ方
 
+[Releases](https://github.com/kishima/review-assist/releases) から `.vsix` を落として入れる。
+
+```sh
+code --install-extension review-assist-0.1.0.vsix
+```
+
+自分で作るなら:
+
 ```sh
 git clone https://github.com/kishima/review-assist.git
 cd review-assist
@@ -36,7 +44,8 @@ code --install-extension review-assist-0.1.0.vsix
 | ホバー | 参照の先の見出しの階層、ブロックのキャプション、ファイルと行。`@<img>` は設定 `imagePreview` の PNG があれば表示する |
 | アウトライン | 見出しの階層と、その下の `//list` `//table` `//image` `//footnote`（id を持つものだけ） |
 | 診断 | 下の表 |
-| コマンド | 「Review Assist: ワークスペースを索引し直す」「Review Assist: 索引の状態を表示する」 |
+| PDF で開く | コマンド「Review Assist: この節を PDF で開く」。カーソルの直近の見出し（無ければ章の先頭）のページを設定 `pageIndex` の索引から引き、設定 `pdf` の PDF を `#page=N` 付きで既定のビューアに渡す |
+| コマンド | 「この節を PDF で開く」「ワークスペースを索引し直す」「索引の状態を表示する」（どれも先頭に `Review Assist:`） |
 
 ### 診断
 
@@ -74,6 +83,8 @@ error が 1 件でもあれば終了コード 1。CI で原稿を見張るのに
   "chapters": { "opcodes": ["opcodes_template.re", "sub-article/*.re"] },
   "exclude": [],
   "imagePreview": "images/png/{chapter}/{id}.png",
+  "pdf": "book.pdf",
+  "pageIndex": "book-pages.json",
   "warnUnreferencedTables": true,
   "maxCodeLineLength": 80,
   "codeLineWidth": "chars",
@@ -97,6 +108,8 @@ error が 1 件でもあれば終了コード 1。CI で原稿を見張るのに
 | `chapters` | `{}` | 章 ID → その章の中身がある**元ファイル**の glob。生成物の章を元ファイルに読み替える。読み替えた章の `catalog.yml` 上のファイルは索引から自動で外れる |
 | `exclude` | `[]` | 索引から外す glob |
 | `imagePreview` | なし | `@<img>` のホバーに出す PNG のパス。`{chapter}` と `{id}` を置き換える。無ければプレビューを出さない |
+| `pdf` | なし | 「この節を PDF で開く」が開く PDF（ワークスペース相対）。無ければコマンドがその旨を言う |
+| `pageIndex` | なし | 見出し → ページ番号の索引 JSON（ワークスペース相対）。下記 |
 | `warnUnreferencedTables` | `true` | 参照されていない `//table` を warning にする |
 | `maxCodeLineLength` | `80` | コードブロック 1 行の上限。0 以下で切れる |
 | `codeLineWidth` | `"chars"` | 行長の数え方。`"chars"` は全角も 1 文字、`"halfwidth"` は全角を 2 とする |
@@ -129,8 +142,41 @@ error が 1 件でもあれば終了コード 1。CI で原稿を見張るのに
 取っている。本文の大きさ（`texdocumentclass` の pt と本文幅の zw）を変えたら `charWidth` を
 測り直すこと。
 
+### PDF のページの索引（`pageIndex`）
+
+この拡張は **PDF を解析しない**。`pageIndex` が指す JSON を読むだけで、その JSON は本の側で作る。
+
+```json
+{
+  "vm": 35,
+  "vm|命令ループ": 45,
+  "vm|命令ループ|ディスパッチ": 47,
+  "opcodes|chap_JMP": 242
+}
+```
+
+鍵は Re:VIEW の headline index と同じ作り方（`docs/design/review-syntax.md`）。
+
+* 章そのもの（`=` の見出し）は **章 ID だけ**
+* それ以外は `章ID|見出しの鍵`。見出しの鍵は `==` を 0 段目として「ラベルがあればラベル、
+  無ければ見出しの文字列」を `|` でつないだもの
+
+値は 1 起点のページ番号（PDF ビューアの `#page=` と同じ）。カーソルの直近の見出しの鍵が
+索引に無ければ、**上の段、最後は章の先頭**へ落として開く。
+
+作り方の実例は `book_mruby3` の `tools/pdf_pages.py`（pypdf で各ページのテキストを抜き、
+原稿の見出しを本の順に探す。`tools/build_pdf.sh` が PDF を作ったあとに呼ぶ）。抽出テキストは
+原稿の文字列とそのままでは一致しない（空白、部首で出る漢字、差し替わる記号、折り返し）ので、
+何が要るかは [worklog](docs/worklog/2026-09-19-v0-stage3-4.md) に書いてある。
+
 ## 分かっていない・やらないこと
 
+* **VS Code の実機での確認が限られている。** Extension Development Host が使えない環境で
+  作ったので、確かめてあるのは `src/core/`（VS Code に依存しない層）だけである。定義へ移動・
+  ホバー・アウトライン・診断の表示と、`file:///…#page=N` が実際にそのページで開くかは、
+  実機で見ていない（`docs/verification/`）。`src/extension.ts` は `core` の結果を VS Code の
+  型に写すだけにしてある
+* 作ったのは WSL の Linux だけ。Windows と macOS では試していない
 * インライン命令は `@<op>{...}` の形だけを見る。`@<op>$...$` と `@<op>|...|` は見ない
 * 行をまたぐインライン命令は拾わない
 * `//table` のセルの幅は文字数からの見積もりなので、実際に組んだ幅とは違う。最後は
@@ -144,9 +190,14 @@ error が 1 件でもあれば終了コード 1。CI で原稿を見張るのに
 npm install
 npm run typecheck   # tsc --noEmit
 npm test            # esbuild してから node:test
-npm run compile     # dist/extension.js、dist/cli.js、dist/core.js
+npm run build       # dist/extension.js、dist/cli.js、dist/core.js
 npm run watch
+npm run package     # .vsix
 ```
+
+push と PR で `npm ci` / `npm test` / `npm run build` / `npm run package` が
+GitHub Actions で回る（`.github/workflows/ci.yml`）。`.vsix` は artifact に付く。
+タグ `v*` を push すると Release ができて `.vsix` が付く。
 
 判断はすべて `src/core/`（VS Code に依存しない層）にあり、`src/extension.ts` は VS Code の型に
 写すだけにしてある。テストは `src/core/` に対して書く。設計は [`docs/`](docs/README.md)。
