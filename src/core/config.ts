@@ -36,6 +36,10 @@ export interface ReviewAssistConfig {
   exclude: string[];
   /** `@<img>` のホバーに出す PNG のパス。`{chapter}` と `{id}` を置き換える。 */
   imagePreview?: string;
+  /** 「この節を PDF で開く」が開く PDF（ワークスペース相対）。 */
+  pdf?: string;
+  /** 見出し → ページ番号の索引 JSON（ワークスペース相対）。本側のスクリプトが作る。 */
+  pageIndex?: string;
   /** 参照されていない `//table` を warning にする。 */
   warnUnreferencedTables: boolean;
   /**
@@ -88,6 +92,8 @@ export function loadConfig(root: string): LoadedConfig {
     if (raw.chapters && typeof raw.chapters === 'object') config.chapters = raw.chapters;
     if (Array.isArray(raw.exclude)) config.exclude = raw.exclude;
     if (typeof raw.imagePreview === 'string') config.imagePreview = raw.imagePreview;
+    if (typeof raw.pdf === 'string') config.pdf = raw.pdf;
+    if (typeof raw.pageIndex === 'string') config.pageIndex = raw.pageIndex;
     if (typeof raw.warnUnreferencedTables === 'boolean') config.warnUnreferencedTables = raw.warnUnreferencedTables;
     if (typeof raw.maxCodeLineLength === 'number') config.maxCodeLineLength = raw.maxCodeLineLength;
     if (raw.codeLineWidth === 'chars' || raw.codeLineWidth === 'halfwidth') config.codeLineWidth = raw.codeLineWidth;

@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { diagnoseFile, unreferencedTableDiagnostics, duplicateIdDiagnostics } from './core/diagnostics.js';
 import { ReviewIndex } from './core/index.js';
 import { buildOutline, type OutlineNode } from './core/outline.js';
+import { loadPageIndex, lookupPage } from './core/pdfpages.js';
 import { describeTarget, imagePreviewPath, isReferenceOp, resolveRef } from './core/resolve.js';
 import { parseInlineOps } from './core/parser.js';
 import type { Diagnostic, InlineRef, Span } from './core/types.js';
@@ -195,6 +196,67 @@ const symbolProvider: vscode.DocumentSymbolProvider = {
   },
 };
 
+/**
+ * 「この節を PDF で開く」。カーソルの直近の見出し（無ければ章の先頭）のページを索引 JSON から
+ * 引いて、`file:///…/book.pdf#page=N` を既定のビューアに渡す。開けない理由は全部メッセージで言う。
+ */
+function openInPdf(): void {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    void vscode.window.showInformationMessage('review-assist: エディタが開いていません');
+    return;
+  }
+  const ws = workspaceOf(editor.document.uri);
+  if (!ws) {
+    void vscode.window.showInformationMessage('review-assist: このファイルは原稿（catalog.yml のあるフォルダ）の中にありません');
+    return;
+  }
+  const pdfRel = ws.index.config.pdf;
+  if (!pdfRel) {
+    void vscode.window.showWarningMessage('review-assist: .review-assist.json に "pdf"（PDF のパス）を書いてください');
+    return;
+  }
+  const pdfAbs = ws.index.abs(pdfRel);
+  if (!fs.existsSync(pdfAbs)) {
+    void vscode.window.showWarningMessage(`review-assist: PDF ${pdfRel} がありません（先に本をビルドしてください）`);
+    return;
+  }
+  const load = loadPageIndex(ws.index);
+  if (!load.pages) {
+    const why =
+      load.problem === 'not-configured'
+        ? '.review-assist.json に "pageIndex"（見出し → ページの索引 JSON）を書いてください'
+        : load.problem === 'missing'
+          ? `索引 ${load.path} がありません（本側の tools/pdf_pages.py が PDF と一緒に作ります）`
+          : `索引 ${load.path} が読めません（${load.error}）`;
+    void vscode.window.showWarningMessage(`review-assist: ${why}`);
+    return;
+  }
+
+  const rel = ws.index.rel(editor.document.uri.fsPath);
+  ws.index.updateFile(rel, editor.document.getText());
+  const found = lookupPage(ws.index, load.pages, rel, editor.selection.active.line);
+  if (found.kind === 'no-chapter') {
+    void vscode.window.showInformationMessage(`review-assist: ${rel} は catalog.yml のどの章にも属していないので、ページが決まりません`);
+    return;
+  }
+  if (found.kind === 'not-found') {
+    void vscode.window.showInformationMessage(
+      `review-assist: この見出しは索引にありません（引いた鍵: ${found.keys.join('、')}）。PDF を作り直すと入ります`
+    );
+    return;
+  }
+
+  // `file:///…/book.pdf#page=N`。ページ番号の渡し方は PDF ビューア側の約束（Adobe の
+  // open parameters。Chrome / Edge / Firefox / Preview も同じ形を読む）。
+  const uri = vscode.Uri.file(pdfAbs).with({ fragment: `page=${found.page}` });
+  void vscode.env.openExternal(uri).then((ok) => {
+    if (!ok) void vscode.window.showWarningMessage(`review-assist: ${pdfRel} を開けませんでした`);
+  });
+  const where = found.via === 'heading' ? found.heading?.plainTitle : found.via === 'chapter' ? '章の先頭' : `上の段 ${found.key}`;
+  output.appendLine(`PDF: ${pdfRel} p.${found.page}（${where ?? found.key}）`);
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Review Assist');
   collection = vscode.languages.createDiagnosticCollection('review-assist');
@@ -211,6 +273,7 @@ export function activate(context: vscode.ExtensionContext): void {
       refreshAll();
       void vscode.window.showInformationMessage('review-assist: 索引を作り直しました');
     }),
+    vscode.commands.registerCommand('reviewAssist.openInPdf', () => openInPdf()),
     vscode.commands.registerCommand('reviewAssist.showIndexStats', () => {
       output.clear();
       for (const ws of workspaces) {

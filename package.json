@@ -47,6 +47,10 @@
       {
         "command": "reviewAssist.showIndexStats",
         "title": "Review Assist: 索引の状態を表示する"
+      },
+      {
+        "command": "reviewAssist.openInPdf",
+        "title": "Review Assist: この節を PDF で開く"
       }
     ],
     "configuration": {

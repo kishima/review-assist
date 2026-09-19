@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { ReviewIndex, diagnoseWorkspace, resolveRefDetailed } = require('../dist/core.js');
+const { ReviewIndex, diagnoseWorkspace, resolveRefDetailed, imagePreviewPath, loadPageIndex, lookupPage } = require('../dist/core.js');
 
 const BOOK = process.env.REVIEW_ASSIST_BOOK || path.join(__dirname, '..', '..', '..', 'book_mruby3');
 const available = fs.existsSync(path.join(BOOK, 'catalog.yml'));
@@ -43,4 +43,53 @@ test('book_mruby3: 生成物の章 opcodes は元ファイルで索引する', {
   const r = resolveRefDetailed(idx, ref);
   assert.strictEqual(r.kind, 'hit');
   assert.match(r.target.file, /sub-article\/.*SEND/);
+});
+
+// 計画書 段階 3 の「確認」。どちらも本側の生成物（`tools/drawio2pdf.sh` の PNG と
+// `tools/build_pdf.sh` が呼ぶ `tools/pdf_pages.py` の索引）が要るので、無ければ飛ばす。
+const pngDir = path.join(BOOK, 'images', 'png');
+const hasPng = available && fs.existsSync(pngDir);
+
+test('book_mruby3: 全部の図で imagePreview の PNG が解決する', { skip: hasPng ? false : `${pngDir} が無い（tools/drawio2pdf.sh を走らせる）` }, () => {
+  const idx = new ReviewIndex(BOOK);
+  idx.build();
+  const missing = [];
+  let total = 0;
+  for (const parsed of idx.files.values()) {
+    for (const block of parsed.blocks) {
+      if (block.kind !== 'image' && block.kind !== 'indepimage' && block.kind !== 'imgtable') continue;
+      if (!block.id) continue;
+      total++;
+      const preview = imagePreviewPath(idx, block);
+      if (!preview || !fs.existsSync(idx.abs(preview))) missing.push(`${block.file} ${block.id} → ${preview}`);
+    }
+  }
+  assert.ok(total > 30, `図が少なすぎる: ${total}`);
+  assert.deepStrictEqual(missing, []);
+});
+
+const pageIndexFile = available ? path.join(BOOK, 'book_mruby3-pages.json') : '';
+const hasPages = available && fs.existsSync(pageIndexFile);
+
+test('book_mruby3: どの見出しからも PDF のページが引ける', { skip: hasPages ? false : `${pageIndexFile} が無い（tools/build_pdf.sh を走らせる）` }, () => {
+  const idx = new ReviewIndex(BOOK);
+  idx.build();
+  const load = loadPageIndex(idx);
+  assert.ok(load.pages, `索引が読めない: ${load.problem} ${load.error ?? ''}`);
+
+  // 全部の見出しの行で引いてみる。落ちる先が章の先頭でもよいが、見つからないのは困る
+  const notFound = [];
+  const viaChapter = [];
+  let total = 0;
+  for (const [rel, parsed] of idx.files) {
+    for (const heading of parsed.headings) {
+      total++;
+      const r = lookupPage(idx, load.pages, rel, heading.span.start.line);
+      if (r.kind !== 'ok') notFound.push(`${rel}:${heading.span.start.line + 1} ${heading.plainTitle} (${r.kind})`);
+      else if (r.via === 'chapter' && heading.level > 1) viaChapter.push(`${rel} ${heading.plainTitle}`);
+    }
+  }
+  assert.ok(total > 500, `見出しが少なすぎる: ${total}`);
+  assert.deepStrictEqual(notFound, []);
+  assert.deepStrictEqual(viaChapter, [], '章の先頭に落ちた見出しがある（索引の鍵が合っていない）');
 });
