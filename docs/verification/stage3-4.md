@@ -139,16 +139,29 @@ $ npm run package
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` は**まだ動かしていない**（push していないため）。
-手元で同じ順に回したところは通っている。
+`main` に push して実際に回した（run 35413433025、所要 1 分弱）。
 
 ```
-$ npm ci && npm test && npm run build && npm run package
-（npm test 78 件通過、Packaged: review-assist-0.1.0.vsix）
+Set up job: success
+Run actions/checkout@v4: success
+Run actions/setup-node@v4: success
+Run npm ci: success
+Run npm test: success                      # tests 78 / pass 73 / fail 0 / skipped 5
+Run npm run build: success
+Run npm run package: success               # Packaged: review-assist-0.1.0.vsix (9 files, 49.19 KB)
+Run actions/upload-artifact@v4: success
+Release に .vsix を付ける: skipped          # タグではないので飛ぶ
 ```
 
-YAML は `yaml.safe_load` で読めることだけ確かめた。Release の段（`gh release create`）は
-タグを push しないと通らないので未確認。
+`skipped 5` は実物の原稿に対するテスト（`test/book_mruby3.test.js`）で、runner には
+原稿が無いので飛ぶ。狙いどおり。
+
+`npm ci` が `@azure/*`（`vsce` の依存の依存）について `EBADENGINE`（node >= 22 を要求）を
+warn で出すが、失敗はしない。runner を 22 に上げれば消えるが、VS Code 1.85 が Node 18 なので
+今は 20 のままにしてある。
+
+Release の段（`gh release create`）は**タグを push しないと通らないので未確認**。
+`if: startsWith(github.ref, 'refs/tags/v')` が効いて飛んだことだけ確かめた。
 
 ## 確かめていないこと
 
