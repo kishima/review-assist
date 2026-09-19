@@ -5,7 +5,7 @@
 
 ## 状況
 
-未着手。
+段階 1〜4 すべて済み（2026-09-19）。0.1.0 の `.vsix` を著者の VS Code に導入済み。CI は GitHub Actions で通過。残り: VS Code 実機での確認（著者）、`#page=N` がビューアで効くかの確認、Release はタグを打ったとき。経緯は `docs/worklog/`、確認は `docs/verification/`。
 
 ## 決めたこと
 
