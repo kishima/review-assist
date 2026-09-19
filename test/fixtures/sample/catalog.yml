@@ -1,0 +1,12 @@
+PREDEF:
+  - preface.re
+
+CHAPS:
+  - contents/first.re
+  - contents/gen.re
+
+APPENDIX:
+  - contents/appx.re
+
+POSTDEF:
+  - contents/after.re
