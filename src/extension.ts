@@ -192,7 +192,8 @@ const symbolProvider: vscode.DocumentSymbolProvider = {
     ws.index.updateFile(rel, document.getText());
     const parsed = ws.index.files.get(rel);
     if (!parsed) return [];
-    return buildOutline(parsed).map(toSymbol);
+    // 既定は見出しだけ。表・リスト・図・脚注は設定 outline.blocks に入れた種類だけ出す。
+    return buildOutline(parsed, { blocks: ws.index.config.outline.blocks }).map(toSymbol);
   },
 };
 

@@ -42,7 +42,7 @@ code --install-extension review-assist-0.1.0.vsix
 |---|---|
 | 定義へ移動（F12） | `@<chap>` `@<hd>` `@<list>` `@<table>` `@<img>` `@<fn>` から、その見出し・ブロックへ飛ぶ |
 | ホバー | 参照の先の見出しの階層、ブロックのキャプション、ファイルと行。`@<img>` は設定 `imagePreview` の PNG があれば表示する |
-| アウトライン | 見出しの階層と、その下の `//list` `//table` `//image` `//footnote`（id を持つものだけ） |
+| アウトライン | 見出しの階層（既定）。設定 `outline.blocks` に入れた種類の `//list` `//table` `//image` `//footnote`（id を持つものだけ）を見出しの下に足せる |
 | 診断 | 下の表 |
 | PDF で開く | コマンド「Review Assist: この節を PDF で開く」。カーソルの直近の見出し（無ければ章の先頭）のページを設定 `pageIndex` の索引から引き、設定 `pdf` の PDF を `#page=N` 付きで既定のビューアに渡す |
 | コマンド | 「この節を PDF で開く」「ワークスペースを索引し直す」「索引の状態を表示する」（どれも先頭に `Review Assist:`） |
@@ -117,7 +117,22 @@ error が 1 件でもあれば終了コード 1。CI で原稿を見張るのに
 | `tableWidth.enable` | `true` | 表の幅の見積もりを出す |
 | `tableWidth.limits` | 2 列 0.93 / 3 列 0.90 / 4 列 0.87 | 列数ごとの、`P{}` と `l` 列の見積もり幅の和の上限（`\textwidth` 比）。書かれていない列数は `0.96 - 0.015 × 列数` で外挿する |
 | `tableWidth.charWidth` | `0.011` | `l` 列の見積もり: 半角 1 文字あたりの `\textwidth` 比 |
+| `outline.blocks` | `[]` | アウトラインで見出しの下に出すブロックの種類。`"table"` `"list"` `"image"` `"footnote"` から選ぶ。既定は空＝見出しだけ。下記 |
 | `rules` | `[]` | 下記 |
+
+### `outline.blocks`
+
+既定のアウトラインは**見出しだけ**である。原稿は見出しよりブロックの方が多いことが普通で
+（`book_mruby3` の `contents/vm.re` は見出し 66 に対して id 付きのブロック 52、あわせて 118 項目）、全部を出すと
+木というより一覧に見えてしまう。表や図を追いたいときだけ種類を足す。
+
+```json
+{ "outline": { "blocks": ["table", "image"] } }
+```
+
+`"table"`（`//table` `//imgtable`）・`"list"`（`//list` `//source`）・`"image"`（`//image`
+`//indepimage`）・`"footnote"`（`//footnote`）の 4 つ。知らない語は黙って落ちる。
+id を持たないブロック（`//emlist` `//cmd`）は種類を足しても出ない。
 
 ### `rules` の 1 件
 

@@ -1,8 +1,19 @@
-// アウトライン（VS Code の DocumentSymbol の素）。見出しの階層と、その下の表・リスト・図。
+// アウトライン（VS Code の DocumentSymbol の素）。既定は見出しだけ。
+// 設定 outline.blocks に入れた種類の表・リスト・図・脚注だけを見出しの下に足す。
 // VS Code に依存しない形で木を作り、拡張側で DocumentSymbol に写す。
 import type { Block, Heading, ParsedFile, Span } from './types.js';
 
 export type OutlineKind = 'heading' | 'list' | 'table' | 'image' | 'footnote' | 'other';
+
+/** 設定 `outline.blocks` に書ける種類（見出しの下に出せるブロック）。 */
+export type OutlineBlockKind = 'list' | 'table' | 'image' | 'footnote';
+
+export const OUTLINE_BLOCK_KINDS: readonly OutlineBlockKind[] = ['list', 'table', 'image', 'footnote'];
+
+export interface OutlineOptions {
+  /** 見出しの下に出すブロックの種類。既定は空（見出しだけ）。 */
+  blocks?: readonly OutlineBlockKind[];
+}
 
 export interface OutlineNode {
   name: string;
@@ -72,13 +83,21 @@ function headingNode(h: Heading): OutlineNode {
 }
 
 /**
- * 1 ファイルのアウトライン。見出しを木にして、各ブロックを直前の見出しの下に置く。
- * 見出しの span の終わりは「次の同位以上の見出しの直前」まで伸ばす。
+ * 1 ファイルのアウトライン。見出しを木にして、`options.blocks` に入れた種類のブロックだけを
+ * 直前の見出しの下に置く（既定は見出しだけ）。
+ * 見出しの span の終わりは「次の同位以上の見出しの直前の行の末尾」まで伸ばす。
+ *
+ * 行の末尾（列 0 ではなく)まで伸ばすのは、VS Code の DocumentSymbol が
+ * 「子の range ⊆ 親の range」を要求するため。ブロックの span の終わりは最後の行（`//}`）の
+ * 末尾なので、親を列 0 で閉じると、`//}` の次の行がすぐ見出しのときに子がはみ出し、
+ * VS Code が木を崩してフラットに見せる。
  */
-export function buildOutline(parsed: ParsedFile): OutlineNode[] {
+export function buildOutline(parsed: ParsedFile, options: OutlineOptions = {}): OutlineNode[] {
+  const show = new Set<OutlineKind>(options.blocks ?? []);
   const roots: OutlineNode[] = [];
   const stack: { level: number; node: OutlineNode }[] = [];
   const lastLine = Math.max(0, parsed.lines.length - 1);
+  const endOfLine = (line: number): Span['end'] => ({ line, column: parsed.lines[line]?.length ?? 0 });
 
   type Item = { line: number; heading?: Heading; block?: Block };
   const items: Item[] = [
@@ -89,7 +108,7 @@ export function buildOutline(parsed: ParsedFile): OutlineNode[] {
   const closeTo = (level: number, endLine: number) => {
     while (stack.length > 0 && stack[stack.length - 1].level >= level) {
       const top = stack.pop()!;
-      top.node.span = { start: top.node.span.start, end: { line: Math.max(top.node.span.start.line, endLine), column: 0 } };
+      top.node.span = { start: top.node.span.start, end: endOfLine(Math.max(top.node.span.start.line, endLine)) };
     }
   };
 
@@ -102,7 +121,7 @@ export function buildOutline(parsed: ParsedFile): OutlineNode[] {
       stack.push({ level: item.heading.level, node });
     } else if (item.block) {
       const node = blockNode(item.block);
-      if (!node) continue;
+      if (!node || !show.has(node.kind)) continue;
       if (stack.length === 0) roots.push(node);
       else stack[stack.length - 1].node.children.push(node);
     }

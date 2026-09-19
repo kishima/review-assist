@@ -2,7 +2,7 @@
   "name": "review-assist",
   "displayName": "Review Assist",
   "description": "Re:VIEW の原稿を見直すための補助（索引・定義へ移動・ホバー・アウトライン・参照切れと規則の診断）",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "kishima",
   "license": "MIT",
   "repository": {

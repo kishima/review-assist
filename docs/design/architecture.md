@@ -13,7 +13,7 @@ src/core/        VS Code に依存しない層。判断はすべてここにあ�
   resolve.ts     @<...>{...} → 索引の中の場所
   tablewidth.ts  表の幅の見積もり
   width.ts       半角換算の文字幅
-  outline.ts     アウトラインの木
+  outline.ts     アウトラインの木（既定は見出しだけ。設定 outline.blocks で足す）
   pdfpages.ts    索引 JSON → カーソル位置のページ番号
   diagnostics.ts 診断
   all.ts         テストが読む口（dist/core.js になる）
@@ -35,6 +35,45 @@ VS Code の Extension Development Host が使えない環境で作ったので�
 
 ビルドは esbuild で 3 つの束にする。`dist/extension.js`（`vscode` は external）、
 `dist/cli.js`、`dist/core.js`（テスト用）。
+
+## アウトライン
+
+`buildOutline(parsed, { blocks })` が `OutlineNode` の木を返し、`src/extension.ts` が
+`vscode.DocumentSymbol` に写す。見出しを `=` の数で入れ子にし、`options.blocks` に入れた種類の
+ブロックだけを直前の見出しの子に置く。
+
+**既定は見出しだけ**（`outline.blocks` が `[]`）。0.1.0 は id を持つブロックを全部出していたが、
+原稿では見出しよりブロックの方が多く（`book_mruby3` の `contents/vm.re` は見出し 66 に対して
+id 付きのブロック 52、あわせて 118 項目）、木というより一覧に見えるという指摘があった（2026-09-20、著者）。
+表や図を追いたい人は `.review-assist.json` に `{"outline": {"blocks": ["table", "image"]}}` と書く。
+
+見出しの `detail` にはラベル（`{chap_SEND}`）を出す。ブロックの `name` は `table tbl_mrb_gc` の
+ように種類を頭に付けた形で、これは `@<table>{tbl_mrb_gc}` と見比べるためにそのまま id を出している。
+
+### range の入れ子
+
+VS Code の `DocumentSymbol` は
+
+* `selectionRange ⊆ range`
+* 子の `range ⊆ 親の range`
+
+を前提にしていて、破れると木を作らずに平らに並べることがある。見出しの `range` の終わりは
+「次の同位以上の見出しの直前の行」だが、0.1.0 はその行の**列 0** で閉じていた。ブロックの
+`range` は最後の行（`//}`）の**末尾**まであるので、
+
+```
+=== 節
+//table[t1][…]{
+…
+//}
+== 次の章  ← 空行を挟まずに来ると
+```
+
+この形で子が親から 1 行分はみ出す。0.1.1 で見出しの終わりを「その行の末尾」に変えた。
+`book_mruby3` の原稿は `//}` の後に必ず空行があるので実害は出ていなかったが、
+不変条件として `test/helper.js` の `checkContainment` で押さえ、`contents/vm.re`・`contents/gc.re`・
+`contents/codegen.re`・`sub-article/chap3-037-SEND.re`・`opcodes_template.re` の 5 本について
+`blocks` が空のときと全部のときの両方で確かめている（`test/book_mruby3.test.js`）。
 
 ## 索引
 

@@ -1,6 +1,7 @@
 // `.review-assist.json`（ワークスペース直下）。無ければ既定値で動く。
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { OUTLINE_BLOCK_KINDS, type OutlineBlockKind } from './outline.js';
 
 export interface RuleConfig {
   /** JavaScript の正規表現（文字列）。`flags` を足さなければ `g` だけが付く。 */
@@ -25,6 +26,15 @@ export interface TableWidthConfig {
   limits?: Record<string, number>;
   /** `l` 列の幅の見積もり: 半角 1 文字あたりの `\textwidth` 比。既定 0.011（同上）。 */
   charWidth?: number;
+}
+
+export interface OutlineConfig {
+  /**
+   * 見出しの下に出すブロックの種類（`"table"` `"list"` `"image"` `"footnote"`）。
+   * 既定は空＝見出しだけ。全部出すと木というより一覧に見える
+   * （book_mruby3 の `contents/vm.re` は見出し 66 ＋ id 付きブロック 52 ＝ 118 項目）。
+   */
+  blocks: OutlineBlockKind[];
 }
 
 export interface ReviewAssistConfig {
@@ -55,6 +65,7 @@ export interface ReviewAssistConfig {
   /** `#@#` の中の TODO を info で出す。 */
   todoComments: boolean;
   tableWidth: TableWidthConfig;
+  outline: OutlineConfig;
   rules: RuleConfig[];
 }
 
@@ -70,6 +81,7 @@ export function defaultConfig(): ReviewAssistConfig {
     codeLineWidth: 'chars',
     todoComments: true,
     tableWidth: { enable: true },
+    outline: { blocks: [] },
     rules: [],
   };
 }
@@ -99,6 +111,10 @@ export function loadConfig(root: string): LoadedConfig {
     if (raw.codeLineWidth === 'chars' || raw.codeLineWidth === 'halfwidth') config.codeLineWidth = raw.codeLineWidth;
     if (typeof raw.todoComments === 'boolean') config.todoComments = raw.todoComments;
     if (raw.tableWidth && typeof raw.tableWidth === 'object') config.tableWidth = { ...config.tableWidth, ...raw.tableWidth };
+    if (raw.outline && typeof raw.outline === 'object' && Array.isArray(raw.outline.blocks)) {
+      // 知らない種類は黙って落とす（綴り違いで全部出なくなるより、出ない方が気づける）。
+      config.outline = { blocks: raw.outline.blocks.filter((b): b is OutlineBlockKind => OUTLINE_BLOCK_KINDS.includes(b)) };
+    }
     if (Array.isArray(raw.rules)) config.rules = raw.rules;
     return { config, path: file };
   } catch (e) {
