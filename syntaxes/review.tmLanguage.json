@@ -1,0 +1,317 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Re:VIEW",
+  "scopeName": "source.review",
+  "fileTypes": ["re"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#heading" },
+    { "include": "#block" },
+    { "include": "#block-end" },
+    { "include": "#directive" },
+    { "include": "#list-marker" },
+    { "include": "#inline" }
+  ],
+  "repository": {
+    "comment": {
+      "comment": "Re:VIEW の preprocessor 行。#@# はコメント、#@warn/#@require/#@mapfile/#@maprange/#@end も同じく出力に出ない行なので、まとめて comment として扱う。book_mruby3 に出るのは #@# だけ（416 行）。",
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.review",
+          "match": "^#@#.*$"
+        },
+        {
+          "name": "comment.line.preprocessor.review",
+          "match": "^(#@)([a-z]+).*$",
+          "captures": {
+            "1": { "name": "punctuation.definition.comment.review" },
+            "2": { "name": "keyword.other.preprocessor.review" }
+          }
+        }
+      ]
+    },
+
+    "heading": {
+      "comment": "= の数が深さ。[...] は修飾子（[column] [nonum] など）、{...} はラベル、残りが題。深さを scope 名に出すため 1〜6 を別の規則にしてある。",
+      "patterns": [
+        {
+          "name": "markup.heading.1.review",
+          "match": "^(={1})(?!=)(\\[[^\\]]*\\])?(\\{[^}]*\\})?[ \\t]*(.*)$",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.review" },
+            "2": { "name": "keyword.other.heading-option.review" },
+            "3": { "name": "entity.name.label.review" },
+            "4": { "name": "entity.name.section.review", "patterns": [{ "include": "#inline" }] }
+          }
+        },
+        {
+          "name": "markup.heading.2.review",
+          "match": "^(={2})(?!=)(\\[[^\\]]*\\])?(\\{[^}]*\\})?[ \\t]*(.*)$",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.review" },
+            "2": { "name": "keyword.other.heading-option.review" },
+            "3": { "name": "entity.name.label.review" },
+            "4": { "name": "entity.name.section.review", "patterns": [{ "include": "#inline" }] }
+          }
+        },
+        {
+          "name": "markup.heading.3.review",
+          "match": "^(={3})(?!=)(\\[[^\\]]*\\])?(\\{[^}]*\\})?[ \\t]*(.*)$",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.review" },
+            "2": { "name": "keyword.other.heading-option.review" },
+            "3": { "name": "entity.name.label.review" },
+            "4": { "name": "entity.name.section.review", "patterns": [{ "include": "#inline" }] }
+          }
+        },
+        {
+          "name": "markup.heading.4.review",
+          "match": "^(={4})(?!=)(\\[[^\\]]*\\])?(\\{[^}]*\\})?[ \\t]*(.*)$",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.review" },
+            "2": { "name": "keyword.other.heading-option.review" },
+            "3": { "name": "entity.name.label.review" },
+            "4": { "name": "entity.name.section.review", "patterns": [{ "include": "#inline" }] }
+          }
+        },
+        {
+          "name": "markup.heading.5.review",
+          "match": "^(={5})(?!=)(\\[[^\\]]*\\])?(\\{[^}]*\\})?[ \\t]*(.*)$",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.review" },
+            "2": { "name": "keyword.other.heading-option.review" },
+            "3": { "name": "entity.name.label.review" },
+            "4": { "name": "entity.name.section.review", "patterns": [{ "include": "#inline" }] }
+          }
+        },
+        {
+          "name": "markup.heading.6.review",
+          "match": "^(={6})(?!=)(\\[[^\\]]*\\])?(\\{[^}]*\\})?[ \\t]*(.*)$",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.review" },
+            "2": { "name": "keyword.other.heading-option.review" },
+            "3": { "name": "entity.name.label.review" },
+            "4": { "name": "entity.name.section.review", "patterns": [{ "include": "#inline" }] }
+          }
+        }
+      ]
+    },
+
+    "block": {
+      "patterns": [
+        { "include": "#block-code-id" },
+        { "include": "#block-code" },
+        { "include": "#block-table" },
+        { "include": "#block-prose" }
+      ]
+    },
+
+    "block-code-id": {
+      "comment": "//list[id][caption]{ 〜 //}。中身はコードとして読めることを優先し、インライン命令を色付けしない。",
+      "name": "meta.block.code.review",
+      "begin": "^(//(?:list|listnum))(?:\\[((?:[^\\]\\\\]|\\\\.)*)\\])?((?:\\[(?:[^\\]\\\\]|\\\\.)*\\])*)(\\{)[ \\t]*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.block.review" },
+        "2": { "name": "entity.name.label.review" },
+        "3": { "patterns": [{ "include": "#block-argument" }] },
+        "4": { "name": "punctuation.section.block.begin.review" }
+      },
+      "end": "^(//\\})[ \\t]*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.block.end.review" }
+      },
+      "contentName": "markup.raw.block.review"
+    },
+
+    "block-code": {
+      "comment": "//emlist[caption]{ など、id を取らないコード系ブロック。",
+      "name": "meta.block.code.review",
+      "begin": "^(//(?:emlist|emlistnum|cmd|source|terminal))((?:\\[(?:[^\\]\\\\]|\\\\.)*\\])*)(\\{)[ \\t]*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.block.review" },
+        "2": { "patterns": [{ "include": "#block-argument" }] },
+        "3": { "name": "punctuation.section.block.begin.review" }
+      },
+      "end": "^(//\\})[ \\t]*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.block.end.review" }
+      },
+      "contentName": "markup.raw.block.review"
+    },
+
+    "block-table": {
+      "comment": "//table[id][caption]{ 〜 //}。中身は本文と同じ規則で色付けし、行全体が 3 文字以上のハイフンなら見出し行との区切りとする。",
+      "name": "meta.block.table.review",
+      "begin": "^(//(?:table|imgtable))(?:\\[((?:[^\\]\\\\]|\\\\.)*)\\])?((?:\\[(?:[^\\]\\\\]|\\\\.)*\\])*)(\\{)[ \\t]*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.block.review" },
+        "2": { "name": "entity.name.label.review" },
+        "3": { "patterns": [{ "include": "#block-argument" }] },
+        "4": { "name": "punctuation.section.block.begin.review" }
+      },
+      "end": "^(//\\})[ \\t]*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.block.end.review" }
+      },
+      "patterns": [
+        { "name": "meta.separator.table.review", "match": "^-{3,}[ \\t]*$" },
+        { "include": "#inline" }
+      ]
+    },
+
+    "block-prose": {
+      "comment": "上に当たらないブロック全部（//quote //note //footnote //memo …）。中身は本文と同じ規則。",
+      "name": "meta.block.review",
+      "begin": "^(//[a-z]+)((?:\\[(?:[^\\]\\\\]|\\\\.)*\\])*)(\\{)[ \\t]*$",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.block.review" },
+        "2": { "patterns": [{ "include": "#block-argument" }] },
+        "3": { "name": "punctuation.section.block.begin.review" }
+      },
+      "end": "^(//\\})[ \\t]*$",
+      "endCaptures": {
+        "1": { "name": "keyword.control.block.end.review" }
+      },
+      "patterns": [{ "include": "#inline" }]
+    },
+
+    "block-end": {
+      "comment": "対応する開始行が見つからなかった //}（原稿が壊れているとき）。",
+      "match": "^(//\\})[ \\t]*$",
+      "captures": {
+        "1": { "name": "keyword.control.block.end.review" }
+      }
+    },
+
+    "directive": {
+      "patterns": [
+        {
+          "comment": "id を第 1 引数に取る単行命令。//image[id][caption][scale=…]、//footnote[id][本文]、//indepimage[id]…",
+          "name": "meta.directive.review",
+          "match": "^(//(?:image|indepimage|numberlessimage|footnote))(?:\\[((?:[^\\]\\\\]|\\\\.)*)\\])?((?:\\[(?:[^\\]\\\\]|\\\\.)*\\])*)[ \\t]*$",
+          "captures": {
+            "1": { "name": "keyword.control.directive.review" },
+            "2": { "name": "entity.name.label.review" },
+            "3": { "patterns": [{ "include": "#block-argument" }] }
+          }
+        },
+        {
+          "comment": "引数なし・id なしの単行命令。//pagebreak、//blankline、//noindent、//tsize[|latex||l|…|]",
+          "name": "meta.directive.review",
+          "match": "^(//[a-z]+)((?:\\[(?:[^\\]\\\\]|\\\\.)*\\])*)[ \\t]*$",
+          "captures": {
+            "1": { "name": "keyword.control.directive.review" },
+            "2": { "patterns": [{ "include": "#block-argument" }] }
+          }
+        }
+      ]
+    },
+
+    "block-argument": {
+      "comment": "ブロック命令の [...]。逃がすのは \\] だけ（P{0.62\\textwidth} の \\t を潰さないため）。キャプションには本文と同じインライン命令が書ける。",
+      "match": "\\[((?:[^\\]\\\\]|\\\\.)*)\\]",
+      "captures": {
+        "1": {
+          "name": "string.unquoted.argument.review",
+          "patterns": [{ "include": "#escape" }, { "include": "#inline" }]
+        }
+      }
+    },
+
+    "list-marker": {
+      "comment": "箇条書き・番号付き・定義リストの印だけを取る。印の右は本文と同じ規則で色付けされる。",
+      "patterns": [
+        { "name": "markup.list.unnumbered.review", "match": "^[ \\t]+\\*+[ \\t]" },
+        { "name": "markup.list.numbered.review", "match": "^[ \\t]+[0-9]+\\.[ \\t]" },
+        { "name": "markup.list.definition.review", "match": "^[ \\t]+:[ \\t]" }
+      ]
+    },
+
+    "escape": {
+      "comment": "インライン命令の中では \\} を、ブロックの引数では \\] を逃がす。",
+      "name": "constant.character.escape.review",
+      "match": "\\\\[\\]}]"
+    },
+
+    "inline": {
+      "comment": "@<op>{...}、@<op>$...$、@<op>|...| の 3 種の括り（Re:VIEW 2.5）。命令の種類ごとに scope を分ける。最後の #inline-other が受けるので、知らない命令でも色は付く。",
+      "patterns": [
+        { "include": "#inline-reference" },
+        { "include": "#inline-bold" },
+        { "include": "#inline-italic" },
+        { "include": "#inline-code" },
+        { "include": "#inline-index" },
+        { "include": "#inline-other" }
+      ]
+    },
+
+    "inline-reference": {
+      "comment": "参照系。原稿のどこか別の場所を指す（この拡張が定義へ移動とホバーを出すのもこの一群）。",
+      "name": "meta.inline.reference.review",
+      "match": "(@<(?:chap|chapref|hd|img|list|table|fn|column|secref|title)>)(?:\\{((?:[^}\\\\]|\\\\.)*)\\}|\\$((?:[^$\\\\]|\\\\.)*)\\$|\\|((?:[^|\\\\]|\\\\.)*)\\|)",
+      "captures": {
+        "1": { "name": "entity.name.tag.inline.reference.review" },
+        "2": { "name": "string.other.link.review", "patterns": [{ "include": "#escape" }] },
+        "3": { "name": "string.other.link.review", "patterns": [{ "include": "#escape" }] },
+        "4": { "name": "string.other.link.review", "patterns": [{ "include": "#escape" }] }
+      }
+    },
+
+    "inline-bold": {
+      "name": "meta.inline.bold.review",
+      "match": "(@<(?:b|strong)>)(?:\\{((?:[^}\\\\]|\\\\.)*)\\}|\\$((?:[^$\\\\]|\\\\.)*)\\$|\\|((?:[^|\\\\]|\\\\.)*)\\|)",
+      "captures": {
+        "1": { "name": "entity.name.tag.inline.bold.review" },
+        "2": { "name": "markup.bold.review", "patterns": [{ "include": "#escape" }] },
+        "3": { "name": "markup.bold.review", "patterns": [{ "include": "#escape" }] },
+        "4": { "name": "markup.bold.review", "patterns": [{ "include": "#escape" }] }
+      }
+    },
+
+    "inline-italic": {
+      "name": "meta.inline.italic.review",
+      "match": "(@<(?:i|em)>)(?:\\{((?:[^}\\\\]|\\\\.)*)\\}|\\$((?:[^$\\\\]|\\\\.)*)\\$|\\|((?:[^|\\\\]|\\\\.)*)\\|)",
+      "captures": {
+        "1": { "name": "entity.name.tag.inline.italic.review" },
+        "2": { "name": "markup.italic.review", "patterns": [{ "include": "#escape" }] },
+        "3": { "name": "markup.italic.review", "patterns": [{ "include": "#escape" }] },
+        "4": { "name": "markup.italic.review", "patterns": [{ "include": "#escape" }] }
+      }
+    },
+
+    "inline-code": {
+      "name": "meta.inline.code.review",
+      "match": "(@<(?:code|tt|tti|ttb)>)(?:\\{((?:[^}\\\\]|\\\\.)*)\\}|\\$((?:[^$\\\\]|\\\\.)*)\\$|\\|((?:[^|\\\\]|\\\\.)*)\\|)",
+      "captures": {
+        "1": { "name": "entity.name.tag.inline.code.review" },
+        "2": { "name": "markup.raw.inline.review", "patterns": [{ "include": "#escape" }] },
+        "3": { "name": "markup.raw.inline.review", "patterns": [{ "include": "#escape" }] },
+        "4": { "name": "markup.raw.inline.review", "patterns": [{ "include": "#escape" }] }
+      }
+    },
+
+    "inline-index": {
+      "comment": "索引。@<hidx> は本文に何も出さない（索引に項目だけ足す）ので、地の文と区別が付く scope を別に持たせる。",
+      "name": "meta.inline.index.review",
+      "match": "(@<(?:idx|hidx)>)(?:\\{((?:[^}\\\\]|\\\\.)*)\\}|\\$((?:[^$\\\\]|\\\\.)*)\\$|\\|((?:[^|\\\\]|\\\\.)*)\\|)",
+      "captures": {
+        "1": { "name": "entity.name.tag.inline.index.review" },
+        "2": { "name": "markup.other.index.review", "patterns": [{ "include": "#escape" }] },
+        "3": { "name": "markup.other.index.review", "patterns": [{ "include": "#escape" }] },
+        "4": { "name": "markup.other.index.review", "patterns": [{ "include": "#escape" }] }
+      }
+    },
+
+    "inline-other": {
+      "comment": "上のどれでもないインライン命令（@<br> @<href> @<embed> @<kw> @<ruby> @<m> @<raw> @<uchar> …）。知らない命令もここで受ける。",
+      "name": "meta.inline.other.review",
+      "match": "(@<[a-zA-Z0-9_]+>)(?:\\{((?:[^}\\\\]|\\\\.)*)\\}|\\$((?:[^$\\\\]|\\\\.)*)\\$|\\|((?:[^|\\\\]|\\\\.)*)\\|)",
+      "captures": {
+        "1": { "name": "entity.name.tag.inline.other.review" },
+        "2": { "name": "markup.other.inline.review", "patterns": [{ "include": "#escape" }] },
+        "3": { "name": "markup.other.inline.review", "patterns": [{ "include": "#escape" }] },
+        "4": { "name": "markup.other.inline.review", "patterns": [{ "include": "#escape" }] }
+      }
+    }
+  }
+}

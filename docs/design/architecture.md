@@ -19,10 +19,20 @@ src/core/        VS Code に依存しない層。判断はすべてここにあ�
   all.ts         テストが読む口（dist/core.js になる）
 src/extension.ts VS Code の型に写すだけの層
 src/cli.ts       VS Code 無しで全体を診断する CLI
+
+syntaxes/review.tmLanguage.json  構文の色付け（TextMate 文法、scopeName source.review）
+language-configuration.json      行コメントと括弧の対
 ```
 
+文法は TypeScript の層とは独立していて、VS Code が直接読む（`contributes.grammars`）。
+`src/core/parser.ts` とは**別の実装**である。片方を直したらもう片方も見ること。
+分けてあるのは、パーサは索引と診断のために「行の種別とブロックの構造」を知りたいのに対し、
+文法は「画面に出ている 1 行を色に分ける」のが仕事で、要るものが違うため。
+選んだ scope 名と、色を付ける対象は [syntax-highlight.md](syntax-highlight.md)。
+
 VS Code の Extension Development Host が使えない環境で作ったので、**確かめられるのは
-`src/core/` だけ**である。だから境界をはっきり分けてある。`src/extension.ts` には
+`src/core/` と文法だけ**である（文法は VS Code 本体と同じ `vscode-textmate` で回せる。
+0.1.2 から）。だから境界をはっきり分けてある。`src/extension.ts` には
 「`core` の結果を `vscode.Diagnostic` や `vscode.DocumentSymbol` に写す」以上のことを書かない。
 新しい判断を足すときは `core` に足し、`node:test` で確かめる。
 
@@ -32,6 +42,9 @@ VS Code の Extension Development Host が使えない環境で作ったので�
 `catalog.yml` は行ベースで読み、glob は `src/core/glob.ts` に 30 行で書いた。
 理由は、原稿を書く人の環境に `npm install` を強いないため（`.vsix` に入るのは
 `dist/*.js` だけで 42 KB）。
+
+devDependencies の `vscode-textmate` と `vscode-oniguruma`（0.1.2 で追加、文法のテスト用）は
+`.vscodeignore` が `test/**` と `node_modules/**` を外しているので `.vsix` には入らない。
 
 ビルドは esbuild で 3 つの束にする。`dist/extension.js`（`vscode` は external）、
 `dist/cli.js`、`dist/core.js`（テスト用）。

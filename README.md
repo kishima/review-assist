@@ -6,8 +6,8 @@ Re:VIEW の原稿を見直すための VS Code 拡張。原稿全体を索引し
 本に固有のもの（禁止語、表記の規則、生成物の章の元ファイル、画像の置き場所）は、ワークスペース
 直下の `.review-assist.json` に書く。設定が無ければ Re:VIEW 一般の既定値で動く。
 
-構文の色付けは提供しない（既存の [`atsushieno.language-review`](https://marketplace.visualstudio.com/items?itemName=atsushieno.language-review)
-に任せる。言語 ID `review` が同じなので共存する）。日本語の文章の校正も持たない（textlint の役目）。
+0.1.2 から**構文の色付け**も持つ（下記。[`atsushieno.language-review`](https://marketplace.visualstudio.com/items?itemName=atsushieno.language-review)
+とは同時に使えないので、そちらは無効にする）。日本語の文章の校正は持たない（textlint の役目）。
 
 **Marketplace には出していない。** `.vsix` を作って手で入れる。
 
@@ -16,7 +16,7 @@ Re:VIEW の原稿を見直すための VS Code 拡張。原稿全体を索引し
 [Releases](https://github.com/kishima/review-assist/releases) から `.vsix` を落として入れる。
 
 ```sh
-code --install-extension review-assist-0.1.0.vsix
+code --install-extension review-assist-0.1.2.vsix
 ```
 
 自分で作るなら:
@@ -25,8 +25,8 @@ code --install-extension review-assist-0.1.0.vsix
 git clone https://github.com/kishima/review-assist.git
 cd review-assist
 npm install
-npm run package          # review-assist-0.1.0.vsix ができる
-code --install-extension review-assist-0.1.0.vsix
+npm run package          # review-assist-0.1.2.vsix ができる
+code --install-extension review-assist-0.1.2.vsix
 ```
 
 入れ替えるときも同じコマンドでよい（同じ版を上書きするなら `--force` を足す）。外すのは
@@ -40,6 +40,7 @@ code --install-extension review-assist-0.1.0.vsix
 
 | 機能 | 内容 |
 |---|---|
+| 構文の色付け | 見出し・`#@#` のコメント・ブロック命令とその引数・インライン命令（種類ごとに色を分ける）・箇条書き・`//table` の区切り行。下記 |
 | 定義へ移動（F12） | `@<chap>` `@<hd>` `@<list>` `@<table>` `@<img>` `@<fn>` から、その見出し・ブロックへ飛ぶ |
 | ホバー | 参照の先の見出しの階層、ブロックのキャプション、ファイルと行。`@<img>` は設定 `imagePreview` の PNG があれば表示する |
 | アウトライン | 見出しの階層（既定）。設定 `outline.blocks` に入れた種類の `//list` `//table` `//image` `//footnote`（id を持つものだけ）を見出しの下に足せる |
@@ -60,6 +61,47 @@ code --install-extension review-assist-0.1.0.vsix
 | `code-line-length` | warning | コードブロックの行が `maxCodeLineLength` を超える |
 | `table-width` | warning | 表の幅の見積もりが列数ごとの上限を超える |
 | `todo` | info | `#@#` のコメントの中の `TODO`（`todoComments`） |
+
+### 構文の色付け
+
+`.re` を TextMate 文法（`syntaxes/review.tmLanguage.json`、scopeName `source.review`）で色付けする。
+見出しは深さごと（`markup.heading.1.review` 〜 `.6.review`）、インライン命令は
+**参照・太字・斜体・コード・索引・その他**の 6 種に分けてあるので、テーマや
+`editor.tokenColorCustomizations` で区別できる。選んだ scope 名とその理由は
+[`docs/design/syntax-highlight.md`](docs/design/syntax-highlight.md)。
+
+コード系のブロック（`//list` `//emlist` `//emlistnum` `//listnum` `//cmd` `//source` `//terminal`）の
+**中身ではインライン命令を色付けしない**（コードとして読めることを優先した）。`//note` `//quote`
+`//table` `//footnote` の中身は地の文と同じ規則で色付けする。
+
+#### `atsushieno.language-review` を無効にする
+
+同じ言語 ID `review` に 2 つの拡張が文法を寄付すると、VS Code はどちらか一方しか使わない。
+どちらが勝つかは決まっていないので、両方を入れたままにはしないこと。
+
+加えて、`atsushieno.language-review` は `.re` と**同じディレクトリ**の `catalog.yml` しか見ない
+（`out/src/preview.js:143` の `path.resolve(docDirName, "catalog.yml")`）。原稿を
+`contents/*.re`、`catalog.yml` を根に置く構成だと `catalog.yml` が見つからず、他章への参照
+すべてに「参照先 chapter の overview が見つかりません。」というエラーが出る。この診断だけを
+止める設定は無い。
+
+ワークスペースだけで無効にする手順:
+
+1. 拡張ビュー（`Ctrl+Shift+X`）で `language-review` を探す
+2. 歯車 → **「このワークスペースで無効にする」**（Disable (Workspace)）
+3. 「再読み込み」を押す
+
+本のリポジトリ側で勧めないようにしておくこともできる（`.vscode/extensions.json`）。
+
+```json
+{
+  "recommendations": ["kishima.review-assist"],
+  "unwantedRecommendations": ["atsushieno.language-review"]
+}
+```
+
+`unwantedRecommendations` は**勧めるのをやめるだけ**で、すでに入っている拡張は無効にならない。
+無効にするのは上の 1〜3 が要る。
 
 ### VS Code 無しで全体を見る（CLI）
 
@@ -192,12 +234,16 @@ id を持たないブロック（`//emlist` `//cmd`）は種類を足しても�
   実機で見ていない（`docs/verification/`）。`src/extension.ts` は `core` の結果を VS Code の
   型に写すだけにしてある
 * 作ったのは WSL の Linux だけ。Windows と macOS では試していない
-* インライン命令は `@<op>{...}` の形だけを見る。`@<op>$...$` と `@<op>|...|` は見ない
+* **索引と参照**が見るインライン命令は `@<op>{...}` の形だけ。`@<op>$...$` と `@<op>|...|` は
+  色は付くが、定義へ移動・ホバー・診断の対象にならない（`book_mruby3` に 0 件）
 * 行をまたぐインライン命令は拾わない
 * `//table` のセルの幅は文字数からの見積もりなので、実際に組んだ幅とは違う。最後は
   `Overfull hbox` の有無で確かめる
 * `@<column>` `@<bib>` `@<icon>` `@<eq>` はまだ参照として扱っていない
-* 構文の色付け、スニペット、Re:VIEW のビルド、日本語の校正、PDF の解析は持たない
+* 構文の色付けは**実機で目で見ていない**。VS Code 本体と同じエンジン（`vscode-textmate`）で
+  原稿をトークン化し、scope の付かない `@<` と `//` が 0 件であることまでは機械で確かめてある
+  （`test/grammar.test.js`）
+* スニペット、Re:VIEW のビルド、日本語の校正、PDF の解析は持たない
 
 ## 開発
 

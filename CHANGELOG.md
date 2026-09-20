@@ -1,5 +1,30 @@
 # 変更の記録
 
+## 0.1.2
+
+**構文の色付け**を自前で持つようにした。これまでは
+[`atsushieno.language-review`](https://marketplace.visualstudio.com/items?itemName=atsushieno.language-review)
+に任せていたが、そちらは `.re` と同じディレクトリの `catalog.yml` しか見ないため、原稿を
+`contents/` に置く構成だと他章への参照すべてに「参照先 chapter の overview が見つかりません。」
+と出て、止める設定が無い。色付けのためだけに残しておけなくなったので、こちらで持つ。
+
+- `syntaxes/review.tmLanguage.json`（scopeName `source.review`）と
+  `language-configuration.json`（`#@#` の行コメント、`{}` `[]` の対）を追加。文法は自前で書いた
+  （language-review の文法は Apache-2.0 なので読んでも写していない）
+- 色を付けるのは、見出し（深さごと）・`#@` の行・ブロック命令とその引数（id とキャプションを
+  分ける）・単行の命令・インライン命令・箇条書き・定義リスト・`//table` の区切り行・逃がし文字。
+  インライン命令は**参照・太字・斜体・コード・索引・その他**の 6 種で scope を分ける
+- コード系ブロック（`//list` `//listnum` `//emlist` `//emlistnum` `//cmd` `//source` `//terminal`）の
+  中身ではインライン命令を色付けしない。`//note` `//quote` `//table` `//footnote` の中身は地の文と同じ
+- インライン命令の 3 種の括り（`@<op>{...}` `@<op>$...$` `@<op>|...|`）と `\}` の逃がしに対応
+- 文法のテストを追加（`test/grammar.test.js`、18 件）。VS Code 本体と同じ
+  `vscode-textmate` + `vscode-oniguruma` でトークン化して scope を確かめる。
+  `book_mruby3` の `contents/vm.re` 全体について、scope の付かない `@<` と `//` が 0 件であることも見る
+- **`atsushieno.language-review` は無効にすること。** 同じ言語 ID に 2 つの文法があると
+  どちらが使われるか決まらない。手順は README
+
+選んだ scope 名とその理由は `docs/design/syntax-highlight.md`。
+
 ## 0.1.1
 
 アウトラインの見直し（著者の指摘「アウトラインの表示がフラットで項目が多すぎてよく分からない」）。
