@@ -2,8 +2,12 @@
 // Extension Development Host が使えない環境での確認と、CI での見張りに使う。
 //
 //   node dist/cli.js <ワークスペース> [--only code1,code2] [--json] [--quiet]
+//   node dist/cli.js marks <ワークスペース> [--request]
+//     マーカーの一覧（今の位置、見失ったか、AI の結果）。--request で AI チェックの依頼を書き出す。
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ReviewIndex } from './core/index.js';
+import { anchorMark, buildAiRequest, loadAiResults, loadMarks, posAt, writeAiRequest } from './core/marks.js';
 import { diagnoseWorkspace } from './core/diagnostics.js';
 import type { Diagnostic } from './core/types.js';
 
@@ -23,7 +27,44 @@ function severityRank(d: Diagnostic): number {
   return { error: 0, warning: 1, info: 2, hint: 3 }[d.severity];
 }
 
+function marksMain(argv: string[]): number {
+  const root = path.resolve(argv.find((a) => !a.startsWith('--')) ?? process.cwd());
+  const index = new ReviewIndex(root);
+  index.build();
+  if (index.noCatalog) {
+    console.error(`catalog.yml が ${root} に無い`);
+    return 2;
+  }
+  const cfg = index.config.marks;
+  const load = loadMarks(root, cfg);
+  for (const p of load.problems) console.error(`${load.path}: ${p}`);
+  const results = loadAiResults(root, cfg, new Set(load.data.marks.map((m) => m.id)));
+  for (const p of results.problems) console.error(`${results.path}: ${p}`);
+  if (results.unknownIds.length > 0) console.error(`${results.path}: marks.json に無い id ${results.unknownIds.join(', ')}`);
+  console.log(`marks:   ${load.path}（${load.data.marks.length} 件）`);
+  console.log(`results: ${results.exists ? `${results.path}（${results.results.size} 件）` : '(無い)'}`);
+  console.log('');
+  for (const m of load.data.marks) {
+    const abs = index.abs(m.file);
+    const text = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : undefined;
+    const a = text === undefined ? ({ kind: 'lost' } as const) : anchorMark(text, m);
+    const where = a.kind === 'lost' || text === undefined ? `${m.file}:${m.line}（見失った）` : `${m.file}:${posAt(text, a.start).line + 1}${a.kind === 'fuzzy' ? '（文が直されている）' : ''}`;
+    const r = results.results.get(m.id);
+    console.log(`${m.id}  ${m.kind}  ${m.status}  ${where}`);
+    console.log(`    「${m.quote.replace(/\n/g, '⏎')}」${m.note ? ` メモ: ${m.note}` : ''}`);
+    if (r) console.log(`    AI: ${r.verdict} ${r.comment}${r.suggestion !== undefined ? ` 案:「${r.suggestion.replace(/\n/g, '⏎')}」` : ''}`);
+  }
+  if (argv.includes('--request')) {
+    const req = buildAiRequest(index, load.data, cfg);
+    const file = writeAiRequest(root, cfg, req);
+    console.log('');
+    console.log(`依頼: ${file}（${req.ids.length} 件${req.lost.length > 0 ? `、うち見失った ${req.lost.length}` : ''}）`);
+  }
+  return 0;
+}
+
 function main(): number {
+  if (process.argv[2] === 'marks') return marksMain(process.argv.slice(3));
   const args = parseArgs(process.argv.slice(2));
   const index = new ReviewIndex(args.root);
 

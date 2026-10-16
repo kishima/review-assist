@@ -15,10 +15,13 @@ src/core/        VS Code に依存しない層。判断はすべてここにあ�
   width.ts       半角換算の文字幅
   outline.ts     アウトラインの木（既定は見出しだけ。設定 outline.blocks で足す）
   pdfpages.ts    索引 JSON → カーソル位置のページ番号
+  marks.ts       マーカー（0.2.0）。保存形式、位置の探し直し、AI への依頼の組み立て、結果の読み込み、ビューの並び
   diagnostics.ts 診断
   all.ts         テストが読む口（dist/core.js になる）
 src/extension.ts VS Code の型に写すだけの層
-src/cli.ts       VS Code 無しで全体を診断する CLI
+src/marks-ui.ts  マーカーの VS Code 側（装飾、ホバー、ビュー、コマンド）。これも写すだけ
+src/cli.ts       VS Code 無しで全体を診断する CLI（`marks` でマーカーの一覧と依頼の書き出し）
+tools/           測るためのスクリプト（.vsix には入らない）。measure-anchoring.js
 
 syntaxes/review.tmLanguage.json  構文の色付け（TextMate 文法、scopeName source.review）
 language-configuration.json      行コメントと括弧の対
@@ -120,3 +123,52 @@ VS Code の `DocumentSymbol` は
 `scope: "prose"` のときは `prose` の行の全部と、`directive` の行のうち**キャプションの引数だけ**を
 見る（id の引数と `scale=` は外す）。こうすると `//table[gem_list][全角数字が１つ]` の
 キャプションは拾い、`//tsize[|latex||P{0.3\textwidth}|]` は拾わない。
+
+## マーカー（0.2.0）
+
+マーカーは原稿に書かず、ワークスペースの `.review-assist/marks.json` に置く（計画書
+`../plans/marks-and-editor-plan.md` の「決めたこと」）。1 件は
+
+```json
+{ "id": "m…", "kind": "ai-check", "file": "contents/vm.re",
+  "quote": "選んだ文字列", "prefix": "直前 32 文字", "suffix": "直後 32 文字",
+  "line": 101, "note": "", "created": "2026-10-17T…Z", "status": "open" }
+```
+
+`line` は**1 起点**（人と AI が読むので。`src/core` の他の行番号は 0 起点）。id は `m` + 作った時刻の 36 進で、
+消したマーカーの id が後で別のマーカーに使い回されない（古い AI の結果が別のマーカーに付かない）。
+
+### 位置の探し直し（`anchorMark`）
+
+offset や行番号は保存しない。原稿を開いたとき・打つたび・保存のたびに文字列で探す
+（W3C Web Annotation の TextQuoteSelector と同じ考え方）。
+
+1. `quote` が 1 か所にあれば、そこ
+2. 何か所もあれば、前後の文脈がいちばん長く一致する所。同点なら `line` に近い所
+3. 無ければ、`prefix` と `suffix` が両方そのまま残っていて、間が空でなく、段落の切れ目を `quote` より
+   多く含まない所（選んだ文の中が直された）。候補が複数なら長さが `quote` に近い所、次に `line` に近い所
+4. どれでもなければ「見失った」。**消さない**。ビューに警告の印で出し、依頼には付けたときの文で入れる
+
+保存のとき（`onDidSaveTextDocument`）に、そのファイルのマーカーを今の位置で取り直す（`refreshMark`:
+`quote`・`prefix`・`suffix`・`line` を更新）。こうすると少しずつ直していく分には毎回追いつける。
+見失ったものは取り直さない。
+
+文字列での探し方を選んだ理由と、文脈の長さを測った結果は `thresholds.md` と `../verification/marks.md`。
+エディタの装飾の範囲（VS Code が編集に合わせて動かす）に頼らないのは、VS Code を閉じると消えるのと、
+ファイルの外（git の pull、別のエディタ、AI）で直されたときに追えないため。
+
+### AI との受け渡し
+
+拡張は AI を呼ばない。ファイルを 2 つ置くだけ。
+
+* `ai-check.md`（拡張が書く）: 未済の `aiKind`（既定 `ai-check`）を章の順に。1 件ごとに id、章、ファイルと行、
+  見出しの道筋、メモ、選んだ文、選んだ所を含む段落と前後 `contextParagraphs` 段落。先頭で設定 `aiProcedure` の
+  文書（本の側の手順）を指し、末尾に結果の JSON の雛形（id と `quote` を埋めたもの）を付ける。
+  コードブロックの囲みは中身の ` の連続より 1 つ長くする（原稿に ``` が出てきても壊れない）
+* `ai-results.json`（AI が書く）: `{"version":1,"results":[{"id","quote","verdict","comment","suggestion"?}]}`。
+  拡張は `FileSystemWatcher` で見て、ホバーとビューに出す。壊れた JSON は結果 0 件で知らせ、
+  壊れた項目と知らない id はその項目だけ落として出力に書く
+
+`quote` を結果に写してもらうのは、AI が見た後で原稿が直されたかを見分けるため（ホバーに
+「AI が見た後で文が変わっている」、「案を当てる」は確認してから当てる）。「案を当てる」は
+選んだ範囲を `suggestion` で置き換え、マーカーを置き換えた後の文に取り直す。**済みにはしない**。

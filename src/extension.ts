@@ -10,11 +10,15 @@ import { loadPageIndex, lookupPage } from './core/pdfpages.js';
 import { describeTarget, imagePreviewPath, isReferenceOp, resolveRef } from './core/resolve.js';
 import { parseInlineOps } from './core/parser.js';
 import type { Diagnostic, InlineRef, Span } from './core/types.js';
+import { emptyMarks, type MarksData, type AiResultsLoad } from './core/marks.js';
+import { MarksUi, type MarkHost } from './marks-ui.js';
 
 const LANGUAGE = 'review';
 
-class Workspace {
+class Workspace implements MarkHost {
   readonly index: ReviewIndex;
+  marks: MarksData = emptyMarks();
+  results: AiResultsLoad = { results: new Map(), problems: [], unknownIds: [] };
   constructor(readonly folder: vscode.WorkspaceFolder, root: string) {
     this.index = new ReviewIndex(root);
     this.index.build();
@@ -24,6 +28,7 @@ class Workspace {
 let workspaces: Workspace[] = [];
 let collection: vscode.DiagnosticCollection;
 let output: vscode.OutputChannel;
+let marksUi: MarksUi;
 
 /** そのファイルを含むワークスペース（catalog.yml のあるディレクトリ）を探す。 */
 function workspaceOf(uri: vscode.Uri): Workspace | undefined {
@@ -105,6 +110,9 @@ function refreshAll(): void {
       publishAll(ws);
     }
   }
+  marksUi?.reset(workspaces);
+  // 「マーカー」ビューは原稿のあるワークスペースでだけ出す（package.json の views の when）。
+  void vscode.commands.executeCommand('setContext', 'reviewAssist.hasBook', workspaces.length > 0);
 }
 
 /** カーソル位置にあるインライン命令を返す。 */
@@ -262,6 +270,8 @@ export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Review Assist');
   collection = vscode.languages.createDiagnosticCollection('review-assist');
   context.subscriptions.push(output, collection);
+  marksUi = new MarksUi(output, workspaceOf);
+  context.subscriptions.push(marksUi, vscode.window.registerTreeDataProvider('reviewAssist.marks', marksUi));
 
   refreshAll();
 
@@ -270,6 +280,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.languages.registerDefinitionProvider(selector, definitionProvider),
     vscode.languages.registerHoverProvider(selector, hoverProvider),
     vscode.languages.registerDocumentSymbolProvider(selector, symbolProvider),
+    vscode.languages.registerHoverProvider(selector, marksUi),
+    vscode.commands.registerCommand('reviewAssist.addMark', (arg?: { kind?: string } | string) => marksUi.addMark(arg)),
+    vscode.commands.registerCommand('reviewAssist.addMarkAiCheck', () => marksUi.addMark('ai-check')),
+    vscode.commands.registerCommand('reviewAssist.addMarkReadLater', () => marksUi.addMark('read-later')),
+    vscode.commands.registerCommand('reviewAssist.removeMark', (arg?: unknown) => marksUi.removeMark(arg)),
+    vscode.commands.registerCommand('reviewAssist.toggleMarkDone', (arg?: unknown) => marksUi.toggleDone(arg)),
+    vscode.commands.registerCommand('reviewAssist.editMarkNote', (arg?: unknown) => marksUi.editNote(arg)),
+    vscode.commands.registerCommand('reviewAssist.openMark', (arg?: unknown) => marksUi.openMark(arg)),
+    vscode.commands.registerCommand('reviewAssist.applySuggestion', (arg?: unknown) => marksUi.applySuggestion(arg)),
+    vscode.commands.registerCommand('reviewAssist.writeAiRequest', () => marksUi.writeRequest()),
+    vscode.commands.registerCommand('reviewAssist.filterMarks', () => marksUi.chooseFilter()),
+    vscode.window.onDidChangeVisibleTextEditors(() => marksUi.decorateVisible()),
     vscode.commands.registerCommand('reviewAssist.reindex', () => {
       refreshAll();
       void vscode.window.showInformationMessage('review-assist: 索引を作り直しました');
@@ -294,6 +316,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const rel = ws.index.rel(e.document.uri.fsPath);
       ws.index.updateFile(rel, e.document.getText());
       publish(ws, [rel]);
+      // マーカーは文字列で位置を探し直す（打つたびに。1 件 0.1 ms ほど。docs/verification/marks.md）。
+      for (const editor of vscode.window.visibleTextEditors) if (editor.document === e.document) marksUi.decorate(editor);
     }),
     vscode.workspace.onDidOpenTextDocument((doc) => {
       if (doc.languageId !== LANGUAGE) return;
@@ -309,6 +333,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // 保存のときだけは索引全体を見直す（参照されていない表の判定が他のファイルに及ぶ）。
       ws.index.updateFile(ws.index.rel(doc.uri.fsPath), doc.getText());
       publishAll(ws);
+      if (doc.languageId === LANGUAGE) marksUi.onSaved(doc);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => refreshAll())
   );

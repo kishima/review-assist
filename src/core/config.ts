@@ -1,6 +1,7 @@
 // `.review-assist.json`（ワークスペース直下）。無ければ既定値で動く。
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { defaultMarksConfig, readMarksConfig, type MarksConfig } from './marks.js';
 import { OUTLINE_BLOCK_KINDS, type OutlineBlockKind } from './outline.js';
 
 export interface RuleConfig {
@@ -66,6 +67,8 @@ export interface ReviewAssistConfig {
   todoComments: boolean;
   tableWidth: TableWidthConfig;
   outline: OutlineConfig;
+  /** マーカーと AI への依頼（0.2.0）。項目と既定値は marks.ts の `MarksConfig`。 */
+  marks: MarksConfig;
   rules: RuleConfig[];
 }
 
@@ -82,6 +85,7 @@ export function defaultConfig(): ReviewAssistConfig {
     todoComments: true,
     tableWidth: { enable: true },
     outline: { blocks: [] },
+    marks: defaultMarksConfig(),
     rules: [],
   };
 }
@@ -115,6 +119,7 @@ export function loadConfig(root: string): LoadedConfig {
       // 知らない種類は黙って落とす（綴り違いで全部出なくなるより、出ない方が気づける）。
       config.outline = { blocks: raw.outline.blocks.filter((b): b is OutlineBlockKind => OUTLINE_BLOCK_KINDS.includes(b)) };
     }
+    if (raw.marks !== undefined) config.marks = readMarksConfig(raw.marks);
     if (Array.isArray(raw.rules)) config.rules = raw.rules;
     return { config, path: file };
   } catch (e) {

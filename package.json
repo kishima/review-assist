@@ -1,8 +1,8 @@
 {
   "name": "review-assist",
   "displayName": "Review Assist",
-  "description": "Re:VIEW の原稿を見直すための補助（構文色付け・索引・定義へ移動・ホバー・アウトライン・参照切れと規則の診断）",
-  "version": "0.1.2",
+  "description": "Re:VIEW の原稿を見直すための補助（構文色付け・索引・定義へ移動・ホバー・アウトライン・参照切れと規則の診断・マーカーとまとめて AI に頼む仕組み）",
+  "version": "0.2.0",
   "publisher": "kishima",
   "license": "MIT",
   "repository": {
@@ -60,6 +60,52 @@
       {
         "command": "reviewAssist.openInPdf",
         "title": "Review Assist: この節を PDF で開く"
+      },
+      {
+        "command": "reviewAssist.addMarkAiCheck",
+        "title": "Review Assist: マーカーを付ける: AI チェック"
+      },
+      {
+        "command": "reviewAssist.addMarkReadLater",
+        "title": "Review Assist: マーカーを付ける: 後で読む"
+      },
+      {
+        "command": "reviewAssist.addMark",
+        "title": "Review Assist: マーカーを付ける（種類を選ぶ）"
+      },
+      {
+        "command": "reviewAssist.removeMark",
+        "title": "Review Assist: マーカーを外す",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "reviewAssist.toggleMarkDone",
+        "title": "Review Assist: マーカーの済み／未済を切り替える",
+        "icon": "$(check)"
+      },
+      {
+        "command": "reviewAssist.editMarkNote",
+        "title": "Review Assist: マーカーのメモを直す",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "reviewAssist.applySuggestion",
+        "title": "Review Assist: AI の案を当てる",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "reviewAssist.writeAiRequest",
+        "title": "Review Assist: AI チェックの依頼を書き出す",
+        "icon": "$(export)"
+      },
+      {
+        "command": "reviewAssist.filterMarks",
+        "title": "Review Assist: マーカーを絞る（未済／済み／全部）",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "reviewAssist.openMark",
+        "title": "Review Assist: マーカーを開く"
       }
     ],
     "configuration": {
@@ -71,6 +117,69 @@
           "description": "拡張を有効にする"
         }
       }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "reviewAssist.marks",
+          "name": "マーカー",
+          "when": "reviewAssist.hasBook"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "reviewAssist.writeAiRequest",
+          "when": "view == reviewAssist.marks",
+          "group": "navigation@1"
+        },
+        {
+          "command": "reviewAssist.filterMarks",
+          "when": "view == reviewAssist.marks",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "reviewAssist.toggleMarkDone",
+          "when": "view == reviewAssist.marks && viewItem =~ /^mark\\./",
+          "group": "inline@1"
+        },
+        {
+          "command": "reviewAssist.applySuggestion",
+          "when": "view == reviewAssist.marks && viewItem =~ /\\.suggestion$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "reviewAssist.editMarkNote",
+          "when": "view == reviewAssist.marks && viewItem =~ /^mark\\./",
+          "group": "1@1"
+        },
+        {
+          "command": "reviewAssist.removeMark",
+          "when": "view == reviewAssist.marks && viewItem =~ /^mark\\./",
+          "group": "1@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "reviewAssist.addMarkAiCheck",
+          "when": "editorLangId == review && editorHasSelection",
+          "group": "reviewAssist@1"
+        },
+        {
+          "command": "reviewAssist.addMarkReadLater",
+          "when": "editorLangId == review && editorHasSelection",
+          "group": "reviewAssist@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "reviewAssist.openMark",
+          "when": "false"
+        }
+      ]
     }
   },
   "scripts": {
