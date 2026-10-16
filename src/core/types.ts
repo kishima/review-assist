@@ -89,6 +89,19 @@ export type LineKind =
   | 'code' // `//list` `//emlist` `//cmd` `//source` の本文
   | 'blockBody'; // それ以外のブロックの本文（`//table` `//quote` など）
 
+/** 箇条の 1 行（` * 項目`、` 1. 項目`、` : 語`）。 */
+export interface ListItem {
+  /** 0 起点の行。 */
+  line: number;
+  kind: 'ul' | 'ol' | 'dl';
+  /** ` ** ` なら 2。番号付きと定義は 1。 */
+  depth: number;
+  /** 印（`*`、`1.`、`:`）の始まりの桁。 */
+  markerStart: number;
+  /** 印の後の空白の次の桁（項目の中身の始まり）。 */
+  markerEnd: number;
+}
+
 export interface ParsedFile {
   file: string;
   lines: string[];
@@ -98,6 +111,8 @@ export interface ParsedFile {
   lineKinds: LineKind[];
   /** directive 行のうち、地の文として規則を当ててよい範囲（キャプションなど）。 */
   directiveProseSpans: { line: number; start: number; end: number }[];
+  /** 地の文の中の箇条の行（0.3.0。編集画面が字下げと印に使う）。 */
+  listItems: ListItem[];
 }
 
 export type Severity = 'error' | 'warning' | 'info' | 'hint';

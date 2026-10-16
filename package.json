@@ -1,7 +1,7 @@
 {
   "name": "review-assist",
   "displayName": "Review Assist",
-  "description": "Re:VIEW の原稿を見直すための補助（構文色付け・索引・定義へ移動・ホバー・アウトライン・参照切れと規則の診断・マーカーとまとめて AI に頼む仕組み）",
+  "description": "Re:VIEW の原稿を見直すための補助（構文色付け・索引・定義へ移動・ホバー・アウトライン・参照切れと規則の診断・マーカーとまとめて AI に頼む仕組み・記法を畳む編集画面）",
   "version": "0.2.0",
   "publisher": "kishima",
   "license": "MIT",
@@ -25,7 +25,8 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:review",
-    "workspaceContains:**/catalog.yml"
+    "workspaceContains:**/catalog.yml",
+    "onCustomEditor:reviewAssist.editor"
   ],
   "contributes": {
     "languages": [
@@ -106,6 +107,27 @@
       {
         "command": "reviewAssist.openMark",
         "title": "Review Assist: マーカーを開く"
+      },
+      {
+        "command": "reviewAssist.toggleEditor",
+        "title": "Review Assist: 記法を畳む編集画面 ⇔ 普通のエディタ",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "reviewAssist.wrapCode",
+        "title": "Review Assist: 選んだ所を @<code>{} で囲む"
+      },
+      {
+        "command": "reviewAssist.wrapBold",
+        "title": "Review Assist: 選んだ所を @<b>{} で囲む"
+      },
+      {
+        "command": "reviewAssist.wrapInline",
+        "title": "Review Assist: 選んだ所をインライン命令で囲む（命令を選ぶ）"
+      },
+      {
+        "command": "reviewAssist.insertBlock",
+        "title": "Review Assist: ブロックの雛形を入れる"
       }
     ],
     "configuration": {
@@ -179,22 +201,79 @@
           "command": "reviewAssist.openMark",
           "when": "false"
         }
+      ],
+      "editor/title": [
+        {
+          "command": "reviewAssist.toggleEditor",
+          "when": "resourceExtname == .re || activeCustomEditorId == reviewAssist.editor",
+          "group": "navigation"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "reviewAssist.addMarkAiCheck",
+          "when": "webviewId == 'reviewAssist.editor'",
+          "group": "reviewAssist@1"
+        },
+        {
+          "command": "reviewAssist.addMarkReadLater",
+          "when": "webviewId == 'reviewAssist.editor'",
+          "group": "reviewAssist@2"
+        },
+        {
+          "command": "reviewAssist.wrapCode",
+          "when": "webviewId == 'reviewAssist.editor'",
+          "group": "reviewAssist2@1"
+        },
+        {
+          "command": "reviewAssist.wrapBold",
+          "when": "webviewId == 'reviewAssist.editor'",
+          "group": "reviewAssist2@2"
+        },
+        {
+          "command": "reviewAssist.insertBlock",
+          "when": "webviewId == 'reviewAssist.editor'",
+          "group": "reviewAssist2@3"
+        },
+        {
+          "command": "reviewAssist.toggleEditor",
+          "when": "webviewId == 'reviewAssist.editor'",
+          "group": "reviewAssist3@1"
+        }
       ]
-    }
+    },
+    "customEditors": [
+      {
+        "viewType": "reviewAssist.editor",
+        "displayName": "Review Assist（記法を畳む）",
+        "selector": [
+          {
+            "filenamePattern": "*.re"
+          }
+        ],
+        "priority": "option"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/webview",
     "test": "node esbuild.mjs && node --test test/*.test.js",
     "cli": "node dist/cli.js",
     "package": "node esbuild.mjs && vsce package --allow-missing-repository"
   },
   "devDependencies": {
+    "@codemirror/autocomplete": "^6.19.0",
+    "@codemirror/commands": "^6.9.0",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.0",
     "esbuild": "^0.24.0",
+    "playwright-core": "^1.63.0",
     "typescript": "^5.6.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"

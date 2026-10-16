@@ -12,6 +12,7 @@ import { parseInlineOps } from './core/parser.js';
 import type { Diagnostic, InlineRef, Span } from './core/types.js';
 import { emptyMarks, type MarksData, type AiResultsLoad } from './core/marks.js';
 import { MarksUi, type MarkHost } from './marks-ui.js';
+import { EDITOR_VIEW_TYPE, ReviewEditorProvider } from './editor-ui.js';
 
 const LANGUAGE = 'review';
 
@@ -29,6 +30,7 @@ let workspaces: Workspace[] = [];
 let collection: vscode.DiagnosticCollection;
 let output: vscode.OutputChannel;
 let marksUi: MarksUi;
+let editorProvider: ReviewEditorProvider | undefined;
 
 /** そのファイルを含むワークスペース（catalog.yml のあるディレクトリ）を探す。 */
 function workspaceOf(uri: vscode.Uri): Workspace | undefined {
@@ -111,6 +113,7 @@ function refreshAll(): void {
     }
   }
   marksUi?.reset(workspaces);
+  editorProvider?.reset();
   // 「マーカー」ビューは原稿のあるワークスペースでだけ出す（package.json の views の when）。
   void vscode.commands.executeCommand('setContext', 'reviewAssist.hasBook', workspaces.length > 0);
 }
@@ -336,6 +339,24 @@ export function activate(context: vscode.ExtensionContext): void {
       if (doc.languageId === LANGUAGE) marksUi.onSaved(doc);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => refreshAll())
+  );
+
+  // 記法を畳む編集画面（0.3.0）。上の onDidChangeTextDocument（索引の更新）より後に作る
+  // （編集画面は変更の通知で索引を読むので、先に索引が今の文字列になっている必要がある）。
+  editorProvider = new ReviewEditorProvider(context.extensionUri, output, workspaceOf);
+  marksUi.setBridge(editorProvider);
+  context.subscriptions.push(
+    editorProvider,
+    vscode.window.registerCustomEditorProvider(EDITOR_VIEW_TYPE, editorProvider, {
+      supportsMultipleEditorsPerDocument: true,
+    }),
+    vscode.commands.registerCommand('reviewAssist.toggleEditor', (uri?: vscode.Uri) => editorProvider!.toggle(uri instanceof vscode.Uri ? uri : undefined)),
+    vscode.commands.registerCommand('reviewAssist.wrapInline', (arg?: { op?: string } | string) =>
+      editorProvider!.wrap(typeof arg === 'string' ? arg : arg?.op)
+    ),
+    vscode.commands.registerCommand('reviewAssist.wrapCode', () => editorProvider!.wrap('code')),
+    vscode.commands.registerCommand('reviewAssist.wrapBold', () => editorProvider!.wrap('b')),
+    vscode.commands.registerCommand('reviewAssist.insertBlock', () => editorProvider!.insertBlock())
   );
 
   // 設定ファイルと catalog.yml が変わったら索引を作り直す。

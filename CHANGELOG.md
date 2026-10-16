@@ -1,5 +1,25 @@
 # 変更の記録
 
+## Unreleased（0.3.0 に入る予定）
+
+**記法を畳む編集画面**（計画書 `docs/plans/marks-and-editor-plan.md` の段階 2）。
+
+- `.re` を、記法の印を隠して見た目で表す編集画面（CustomTextEditor、中身は CodeMirror 6）で開ける。既定のエディタは変えない。
+  エディタの右上のボタン・コマンド「記法を畳む編集画面 ⇔ 普通のエディタ」で行き来する
+- 原稿は `.re` の文字列のまま。保存されるものは普通のエディタで書いたのと 1 文字も違わない。保存・取り消し・未保存の印は VS Code のもの
+- カーソルを入れた記法だけ元の書き方に戻る。`@<code>` は等幅、`@<b>` は太字、`@<hidx>` は隠す（設定 `editor.hidx`）、
+  `@<chap>`／`@<hd>`／`@<table>`／`@<list>`／`@<img>`／`@<fn>` は参照先の題の札（先が無ければ赤）、`@<embed>`・`@<br>` は札、
+  `@<href>` はリンクの色。見出しは大きさを変え（設定 `editor.headingScale`）、`#@` は薄く、箇条は「•」。
+  `//list`・`//emlist`・`//cmd` は枠と見出し、`//table` は列をそろえた表（セルはそのまま打てる）、`//image` は PNG、
+  `//footnote`・`//quote`・`//pagebreak`・`//tsize` も。`book_mruby3` の原稿にある記法で記法のまま残るものは 0
+- 入力の助け: 選んだ所を `@<code>{}`・`@<b>{}` などで囲む（`}` と `\` は逃がす）、`@<chap>{` などで参照の候補、ブロックの雛形
+- マーカー（0.2.0）と AI の結果、この拡張と textlint の診断を同じ画面に。右クリックでマーカーを付けられる
+- `book_mruby3` の全章（57 本）を Chromium で開いて、pageerror 0、文字列が変わらないこと、カーソルを入れると記法が出ること
+  （17,307 か所）を確かめた（`docs/verification/editor.md`、`tools/check-editor.mjs`）。`contents/vm.re` で 1 文字打つごとの処理は
+  中央値 4.4 ms
+- 実機の VS Code ではまだ見ていない（特に日本語 IME）。確かめてほしい操作は README の「確かめ方（0.3.0）」
+- 実行時依存を持たない方針の例外として、CodeMirror 6 を webview の束（`dist/webview.js`）にだけ入れた。`.vsix` は 82 KB → 208 KB
+
 ## 0.2.0
 
 **マーカー**と、**まとめて AI に確かめてもらう仕組み**（計画書 `docs/plans/marks-and-editor-plan.md` の段階 1）。

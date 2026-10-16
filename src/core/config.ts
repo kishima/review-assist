@@ -1,6 +1,7 @@
 // `.review-assist.json`（ワークスペース直下）。無ければ既定値で動く。
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { defaultEditorConfig, readEditorConfig, type EditorConfig } from './editor-config.js';
 import { defaultMarksConfig, readMarksConfig, type MarksConfig } from './marks.js';
 import { OUTLINE_BLOCK_KINDS, type OutlineBlockKind } from './outline.js';
 
@@ -69,8 +70,12 @@ export interface ReviewAssistConfig {
   outline: OutlineConfig;
   /** マーカーと AI への依頼（0.2.0）。項目と既定値は marks.ts の `MarksConfig`。 */
   marks: MarksConfig;
+  /** 記法を畳む編集画面（0.3.0）。 */
+  editor: EditorConfig;
   rules: RuleConfig[];
 }
+
+export type { EditorConfig } from './editor-config.js';
 
 export const CONFIG_FILE = '.review-assist.json';
 
@@ -86,6 +91,7 @@ export function defaultConfig(): ReviewAssistConfig {
     tableWidth: { enable: true },
     outline: { blocks: [] },
     marks: defaultMarksConfig(),
+    editor: defaultEditorConfig(),
     rules: [],
   };
 }
@@ -120,6 +126,7 @@ export function loadConfig(root: string): LoadedConfig {
       config.outline = { blocks: raw.outline.blocks.filter((b): b is OutlineBlockKind => OUTLINE_BLOCK_KINDS.includes(b)) };
     }
     if (raw.marks !== undefined) config.marks = readMarksConfig(raw.marks);
+    if (raw.editor !== undefined) config.editor = readEditorConfig(raw.editor);
     if (Array.isArray(raw.rules)) config.rules = raw.rules;
     return { config, path: file };
   } catch (e) {

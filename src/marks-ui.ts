@@ -33,6 +33,22 @@ export interface MarkHost {
   results: AiResultsLoad;
 }
 
+/** 記法を畳む編集画面（editor-ui.ts）。マーカーのコマンドをそちらでも使えるようにするための口。 */
+export interface EditorBridge {
+  activeSelection(): { document: vscode.TextDocument; anchor: vscode.Position; active: vscode.Position } | undefined;
+  reveal(uri: vscode.Uri, range: vscode.Range): boolean;
+  hasSession(uri: vscode.Uri): boolean;
+  marksChanged(): void;
+}
+
+/** 前に出ている原稿の文書と選択。普通のエディタか、編集画面。 */
+interface Current {
+  document: vscode.TextDocument;
+  start: vscode.Position;
+  end: vscode.Position;
+  active: vscode.Position;
+}
+
 const VERDICT_LABEL: Record<string, string> = { ok: 'OK', fix: '要修正', question: '要確認' };
 
 /** ガターの印（塗った丸。大きさは VS Code が行の高さに合わせる）。 */
@@ -48,11 +64,28 @@ export class MarksUi implements vscode.TreeDataProvider<Node>, vscode.HoverProvi
   private readonly changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
   private watchers: vscode.Disposable[] = [];
+  private bridge: EditorBridge | undefined;
 
   constructor(
     private readonly output: vscode.OutputChannel,
     private readonly hostOf: (uri: vscode.Uri) => MarkHost | undefined
   ) {}
+
+  setBridge(bridge: EditorBridge): void {
+    this.bridge = bridge;
+  }
+
+  /** 前に出ている原稿。編集画面が前なら activeTextEditor は無い（undefined）ので、そちらを見る。 */
+  private current(): Current | undefined {
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      return { document: editor.document, start: editor.selection.start, end: editor.selection.end, active: editor.selection.active };
+    }
+    const b = this.bridge?.activeSelection();
+    if (!b) return undefined;
+    const [start, end] = b.anchor.isBefore(b.active) ? [b.anchor, b.active] : [b.active, b.anchor];
+    return { document: b.document, start, end, active: b.active };
+  }
 
   // -------------------------------------------------------------------------
   // 読み込み
@@ -183,6 +216,7 @@ export class MarksUi implements vscode.TreeDataProvider<Node>, vscode.HoverProvi
   refreshView(): void {
     this.changed.fire(undefined);
     this.decorateVisible();
+    this.bridge?.marksChanged();
   }
 
   // -------------------------------------------------------------------------
@@ -294,12 +328,12 @@ export class MarksUi implements vscode.TreeDataProvider<Node>, vscode.HoverProvi
   private async target(arg: unknown): Promise<{ host: MarkHost; mark: Mark } | undefined> {
     const found = this.find(arg);
     if (found) return found;
-    const editor = vscode.window.activeTextEditor;
-    const host = editor && this.hostOf(editor.document.uri);
-    if (!editor || !host) return undefined;
-    const rel = host.index.rel(editor.document.uri.fsPath);
-    const text = editor.document.getText();
-    const at = offsetAt(text, { line: editor.selection.active.line, column: editor.selection.active.character });
+    const cur = this.current();
+    const host = cur && this.hostOf(cur.document.uri);
+    if (!cur || !host) return undefined;
+    const rel = host.index.rel(cur.document.uri.fsPath);
+    const text = cur.document.getText();
+    const at = offsetAt(text, { line: cur.active.line, column: cur.active.character });
     const here = host.marks.marks.filter((m) => {
       if (m.file !== rel) return false;
       const a = anchorMark(text, m);
@@ -323,13 +357,13 @@ export class MarksUi implements vscode.TreeDataProvider<Node>, vscode.HoverProvi
   }
 
   async addMark(arg?: { kind?: string } | string): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    const host = editor && this.hostOf(editor.document.uri);
-    if (!editor || !host) {
+    const cur = this.current();
+    const host = cur && this.hostOf(cur.document.uri);
+    if (!cur || !host) {
       void vscode.window.showInformationMessage('review-assist: 原稿（catalog.yml のあるフォルダの .re）を開いて範囲を選んでください');
       return;
     }
-    if (editor.selection.isEmpty) {
+    if (cur.start.isEqual(cur.end)) {
       void vscode.window.showInformationMessage('review-assist: マーカーを付ける範囲を選んでください');
       return;
     }
@@ -346,12 +380,12 @@ export class MarksUi implements vscode.TreeDataProvider<Node>, vscode.HoverProvi
     }
     const note = await vscode.window.showInputBox({ prompt: `${kind.label}: メモ（空でもよい。Esc でやめる）` });
     if (note === undefined) return;
-    const text = editor.document.getText();
-    const start = editor.document.offsetAt(editor.selection.start);
-    const end = editor.document.offsetAt(editor.selection.end);
+    const text = cur.document.getText();
+    const start = cur.document.offsetAt(cur.start);
+    const end = cur.document.offsetAt(cur.end);
     const mark = captureMark({
       text,
-      file: host.index.rel(editor.document.uri.fsPath),
+      file: host.index.rel(cur.document.uri.fsPath),
       start,
       end,
       kind: kind.id,
@@ -394,8 +428,11 @@ export class MarksUi implements vscode.TreeDataProvider<Node>, vscode.HoverProvi
     const text = doc.getText();
     const a = anchorMark(text, t.mark);
     const range = a.kind === 'lost' ? new vscode.Range(t.mark.line - 1, 0, t.mark.line - 1, 0) : this.rangeOf(text, a.start, a.end);
-    const editor = await vscode.window.showTextDocument(doc, { selection: range });
-    editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    // 編集画面で開いているなら、そちらで選ぶ（普通のエディタをもう 1 枚開かない）。
+    if (!this.bridge?.reveal(doc.uri, range)) {
+      const editor = await vscode.window.showTextDocument(doc, { selection: range });
+      editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    }
     if (a.kind === 'lost') void vscode.window.showWarningMessage(`review-assist: このマーカーは位置を見失っています（付けたときの ${t.mark.line} 行目を開きました）`);
   }
 
@@ -424,12 +461,13 @@ export class MarksUi implements vscode.TreeDataProvider<Node>, vscode.HoverProvi
     const refreshed = refreshMark(after, t.mark, t.host.index.config.marks.contextLength, { kind: 'fuzzy', start, end });
     Object.assign(t.mark, refreshed);
     this.save(t.host);
-    await vscode.window.showTextDocument(doc, { selection: this.rangeOf(after, start, end) });
+    const selection = this.rangeOf(after, start, end);
+    if (!this.bridge?.reveal(doc.uri, selection)) await vscode.window.showTextDocument(doc, { selection });
   }
 
   async writeRequest(): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    const host = (editor && this.hostOf(editor.document.uri)) ?? (this.hosts.length === 1 ? this.hosts[0] : undefined);
+    const cur = this.current();
+    const host = (cur && this.hostOf(cur.document.uri)) ?? (this.hosts.length === 1 ? this.hosts[0] : undefined);
     if (!host) {
       void vscode.window.showInformationMessage('review-assist: どの原稿か決まりません（原稿の .re を開いてから実行してください）');
       return;

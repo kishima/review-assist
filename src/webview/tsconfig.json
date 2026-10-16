@@ -1,0 +1,12 @@
+{
+  // webview（ブラウザ）の側だけ DOM の型を使う。拡張本体の tsconfig.json には DOM を入れない
+  // （拡張の側で DOM を触る書き間違いを型で止めるため）。
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "rootDir": "..",
+    "types": []
+  },
+  "include": ["./**/*.ts"],
+  "exclude": []
+}

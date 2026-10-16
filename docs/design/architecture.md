@@ -16,12 +16,20 @@ src/core/        VS Code に依存しない層。判断はすべてここにあ�
   outline.ts     アウトラインの木（既定は見出しだけ。設定 outline.blocks で足す）
   pdfpages.ts    索引 JSON → カーソル位置のページ番号
   marks.ts       マーカー（0.2.0）。保存形式、位置の探し直し、AI への依頼の組み立て、結果の読み込み、ビューの並び
+  fold.ts        編集画面（0.3.0）で畳む範囲の一覧（parser.ts を使う）。webview の束にも入る
+  editing.ts     編集画面の入力の助け（インライン命令で囲む、ブロックの雛形、候補の型）。webview の束にも入る
+  editor-config.ts 設定 `editor`。webview の束にも入る
+  editor-protocol.ts 拡張と webview の間のやりとりの型
+  editor-data.ts 拡張から編集画面に送るもの（参照の札、候補、図のパス、マーカーの位置、編集の当て方）
   diagnostics.ts 診断
   all.ts         テストが読む口（dist/core.js になる）
 src/extension.ts VS Code の型に写すだけの層
 src/marks-ui.ts  マーカーの VS Code 側（装飾、ホバー、ビュー、コマンド）。これも写すだけ
+src/editor-ui.ts 編集画面の VS Code 側（CustomTextEditorProvider、TextDocument との同期、コマンド）
+src/webview/     編集画面の webview（CodeMirror 6。dist/webview.js になる）。editor.ts と style.ts
 src/cli.ts       VS Code 無しで全体を診断する CLI（`marks` でマーカーの一覧と依頼の書き出し）
-tools/           測るためのスクリプト（.vsix には入らない）。measure-anchoring.js
+tools/           測る・確かめるためのスクリプト（.vsix には入らない）。measure-anchoring.js、
+                 check-editor.mjs と check-editor-sync.mjs（編集画面を Chromium で開く）、editor-harness.html
 
 syntaxes/review.tmLanguage.json  構文の色付け（TextMate 文法、scopeName source.review）
 language-configuration.json      行コメントと括弧の対
@@ -43,14 +51,30 @@ VS Code の Extension Development Host が使えない環境で作ったので�
 
 `vscode` の API と Node の標準ライブラリだけで書く。YAML のパーサも glob も持ち込まず、
 `catalog.yml` は行ベースで読み、glob は `src/core/glob.ts` に 30 行で書いた。
-理由は、原稿を書く人の環境に `npm install` を強いないため（`.vsix` に入るのは
+理由は、原稿を書く人の環境に `npm install` を強いないため（0.1 の `.vsix` に入るのは
 `dist/*.js` だけで 42 KB）。
+
+### 例外: 編集画面の CodeMirror 6（0.3.0）
+
+記法を畳む編集画面（`src/webview/`）だけは CodeMirror 6（`@codemirror/state`、`view`、`commands`、
+`search`、`autocomplete`。`autocomplete` が `language` を引く）を使う。計画書
+（`../plans/marks-and-editor-plan.md` の「決めたこと」）で決めた唯一の例外で、理由は、日本語の IME、
+範囲の装飾、検索、候補の窓を自前で書くのは割に合わないため。
+
+* esbuild で `dist/webview.js` の 1 ファイル（minify して 345 KB）に束ね、`.vsix` に入れる。原稿を書く人に
+  `npm install` を強いない点は変わらない。`package.json` では `devDependencies`（束ねるので実行時には要らない）
+* **拡張本体（`dist/extension.js`）には入れない。** webview の束が読む `src/core/` のファイル（`fold.ts`、
+  `editing.ts`、`editor-config.ts`、`parser.ts`、`width.ts`）はファイルシステムに触らないものだけにしてある。
+  `src/webview/tsconfig.json` だけが DOM の型を持ち、拡張の側の `tsconfig.json` は `src/webview/` を外す
+  （拡張の側で DOM を触る書き間違いを型で止める）。`npm run typecheck` は両方を回す
+* 取り消しの履歴（`@codemirror/commands` の `history`）は入れない。取り消しは VS Code の TextDocument のもの（下記）
 
 devDependencies の `vscode-textmate` と `vscode-oniguruma`（0.1.2 で追加、文法のテスト用）は
 `.vscodeignore` が `test/**` と `node_modules/**` を外しているので `.vsix` には入らない。
 
-ビルドは esbuild で 3 つの束にする。`dist/extension.js`（`vscode` は external）、
-`dist/cli.js`、`dist/core.js`（テスト用）。
+ビルドは esbuild で 4 つの束にする。`dist/extension.js`（`vscode` は external）、
+`dist/cli.js`、`dist/core.js`（テスト用）、`dist/webview.js`（編集画面。ブラウザ向け、`chrome114` = VS Code 1.85 の
+Electron 25）。
 
 ## アウトライン
 
@@ -172,3 +196,67 @@ offset や行番号は保存しない。原稿を開いたとき・打つたび�
 `quote` を結果に写してもらうのは、AI が見た後で原稿が直されたかを見分けるため（ホバーに
 「AI が見た後で文が変わっている」、「案を当てる」は確認してから当てる）。「案を当てる」は
 選んだ範囲を `suggestion` で置き換え、マーカーを置き換えた後の文に取り直す。**済みにはしない**。
+
+## 記法を畳む編集画面（0.3.0）
+
+計画書の段階 2。経緯は `../worklog/2026-10-17-v0.3.0-editor.md`、確かめた結果は `../verification/editor.md`。
+
+```
+VS Code の TextDocument（正）
+   ↑ WorkspaceEdit（webview の編集）       ↓ 外からの変更は全文（text）
+src/editor-ui.ts  ReviewEditorProvider（CustomTextEditorProvider、viewType reviewAssist.editor、priority option）
+   ↑ edit / selection / sync / command      ↓ init / text / ack / data / wrap / insert / reveal
+dist/webview.js   CodeMirror 6 の EditorView。畳む装飾は src/core/fold.ts の一覧から
+```
+
+### 文字列は 1 文字も書き換えない
+
+webview は `.re` の文字列そのものを CodeMirror の文書として持ち、記法は装飾（`Decoration.replace` と `mark`、
+`line`、図だけ `widget`）で隠す・見た目を変えるだけ。文書の中身を変えるのは人の入力と、入力の助け
+（囲む、雛形、候補）だけで、どれも普通の編集として TextDocument に当たる。
+
+### どこを畳むか（`src/core/fold.ts`）
+
+`planFolds(text)` が `parseReview`（`parser.ts`）の結果から、畳む項目の一覧を作る（インライン命令、見出し、
+`#@` の行、箇条、ブロックの頭・本文・終わり、表の行と区切り、記法のまま残すもの）。位置は CodeMirror の
+数え方（行の切れ目を 1 文字）。パーサは増やしていない。箇条（` * ` など）は 0.1 のパーサが見ていなかったので
+`parser.ts` に足した（`ParsedFile.listItems`。Re:VIEW 2.5.0 の `Compiler#compile_block` と同じ正規表現）。
+表のセルの切り方と区切りの行は Re:VIEW 2.5.0 の `Builder#table`（`split(/\t+/)`、`/\A[=-]{12}/`）に合わせた。
+
+webview は文字が変わるたびに `planFolds` を回し直す（`vm.re` で 1.4 ms ほど）。カーソルが動くたびに、
+一覧とカーソルの位置から装飾を作り直す。**記法が出る条件**: インライン命令はカーソル（選択のどれか）が
+その範囲に触れているとき（端を含む。隣に置くだけで出る）、行の記法（見出し、箇条、ブロックの頭、`//}`、
+表の区切り）はカーソルがその行にあるとき。表の行のタブは記法というより区切りなので、カーソルがあっても
+列をそろえたままにする。
+
+参照の札に出す題（`@<hd>` なら見出し）は索引を引かないと決まらないので、拡張の側で `refLabels`
+（`editor-data.ts`、`resolve.ts` を使う）が作って送る。
+
+### TextDocument との同期
+
+* webview の編集は 1 トランザクションごとに番号（`seq`）を付けて `edit` で送る。位置は**行と桁**
+  （CRLF の原稿では、VS Code は `\r\n` を 2 文字、CodeMirror は 1 文字と数えるので、通しの位置では合わない）。
+  拡張は順に `WorkspaceEdit` で当て、`ack` を返す。拡張は「webview が持っているはずの文字列」（`mirror`、
+  `applyTextChanges`）も追い、当てた結果と食い違えば全文を送り直す
+* 自分の編集を当てている間の変更の通知は送り返さない。それ以外の変更（取り消し、普通のエディタ、
+  ディスクからの読み直し、「案を当てる」）は全文を `text` で送る。webview は前後の共通部分を残して
+  間だけ置き換える（カーソルが写る）
+* webview にまだ `ack` の来ていない編集があるときに `text` が来たら、すぐには当てず、`ack` が揃ってから
+  `sync` を頼んで全文をもらい直す（行き違いで食い違ったままにならない。正は TextDocument）
+* マーカー・診断・札は、拡張が当て終えた番号（`seq`）と一緒に送る。webview はそれより後の自分の編集で
+  位置を写す（打っている間に印がずれない）。前と同じ中身は送らない（webview は受けるたびに装飾を作り直すため）
+* 保存・取り消し・未保存の印は TextDocument のもの。webview は取り消しの履歴を持たないので、`Ctrl+Z` は
+  VS Code が webview から受けて取り消しを行い、その変更が `text` で戻ってくる
+
+### マーカーとコマンド
+
+マーカーの位置は拡張の側で `anchorMark` で探し直し（`markViews`）、行と桁で送る。編集画面が前にあるときは
+`activeTextEditor` が無いので、`marks-ui.ts` は `EditorBridge`（`editor-ui.ts` が実装）から文書と選択を
+もらう。ホバーのボタンは `command` で既存のコマンド（`reviewAssist.toggleMarkDone` など）を呼ぶ。
+右クリックのメニューは `webview/context`（`webviewId == 'reviewAssist.editor'`）。
+
+### VS Code 無しで確かめる
+
+webview は `acquireVsCodeApi` が無ければ送るものを `window.__reviewAssistHost` に溜める。
+`tools/editor-harness.html` で開き、`tools/check-editor.mjs`（全章の表示と文字列）と
+`tools/check-editor-sync.mjs`（拡張の側を Node で真似て同期とコマンド）が Playwright で回す。

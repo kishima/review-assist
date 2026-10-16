@@ -1,6 +1,6 @@
 // Re:VIEW の `.re` を 1 ファイル分だけ読む。ファイルシステムには触らない（文字列を受け取る）。
 // Re:VIEW 2.5 の書式のうち、索引と診断に要るものだけを見る。
-import type { Block, BlockKind, Heading, InlineRef, LineKind, ParsedFile, Span } from './types.js';
+import type { Block, BlockKind, Heading, InlineRef, LineKind, ListItem, ParsedFile, Span } from './types.js';
 
 /** 本文（`{` … `//}`）が「コード」であるブロック。規則の scope `code` はここを指す。 */
 const CODE_BLOCKS = new Set(['list', 'emlist', 'cmd', 'source', 'listnum', 'emlistnum']);
@@ -180,6 +180,15 @@ export function stripInline(text: string): string {
 
 const HEADING_RE = /^(=+)(\[[^\]]*\])?(\{([^}]*)\})?\s*(.*)$/;
 
+/**
+ * 箇条の行。Re:VIEW 2.5.0 の `Compiler#compile_block` の分岐（`lib/review/compiler.rb` 247〜251 行）と
+ * 同じ形: `\A\s+\*`（`*` の数が深さ）、`\A\s+\d+\.`、`\A\s*:\s`（定義の語。説明はその後の字下げした行）。
+ * ` * ` と ` 1. ` は行頭に空白が要る（行頭の `*` は地の文）。
+ */
+const UL_RE = /^(\s+)(\*+)\s*/;
+const OL_RE = /^(\s+)(\d+)\.\s*/;
+const DL_RE = /^(\s*):\s+/;
+
 export function parseReview(file: string, text: string, chapter: string): ParsedFile {
   const lines = text.split(/\r?\n/);
   const headings: Heading[] = [];
@@ -187,6 +196,7 @@ export function parseReview(file: string, text: string, chapter: string): Parsed
   const refs: InlineRef[] = [];
   const lineKinds: LineKind[] = new Array(lines.length).fill('prose');
   const directiveProseSpans: ParsedFile['directiveProseSpans'] = [];
+  const listItems: ListItem[] = [];
 
   // 見出しの階層を持ち回って path を作る。index は level-1。
   const stack: string[] = [];
@@ -314,6 +324,13 @@ export function parseReview(file: string, text: string, chapter: string): Parsed
         if (indexId !== undefined) heading.indexId = indexId;
         headings.push(heading);
       }
+    } else {
+      const ul = UL_RE.exec(line);
+      const ol = ul ? null : OL_RE.exec(line);
+      const dl = ul || ol ? null : DL_RE.exec(line);
+      if (ul) listItems.push({ line: ln, kind: 'ul', depth: ul[2].length, markerStart: ul[1].length, markerEnd: ul[0].length });
+      else if (ol) listItems.push({ line: ln, kind: 'ol', depth: 1, markerStart: ol[1].length, markerEnd: ol[0].length });
+      else if (dl) listItems.push({ line: ln, kind: 'dl', depth: 1, markerStart: dl[1].length, markerEnd: dl[0].length });
     }
     pendingTsize = undefined;
   }
@@ -335,5 +352,5 @@ export function parseReview(file: string, text: string, chapter: string): Parsed
     }
   }
 
-  return { file, lines, headings, blocks, refs, lineKinds, directiveProseSpans };
+  return { file, lines, headings, blocks, refs, lineKinds, directiveProseSpans, listItems };
 }

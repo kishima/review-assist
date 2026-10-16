@@ -1,0 +1,36 @@
+<!doctype html>
+<!--
+  編集画面（dist/webview.js）を VS Code 無しで開くための台。tools/check-editor.mjs が Playwright で開く。
+  VS Code のテーマの CSS 変数は、VS Code が webview に入れるものの代わりに Light+ の色を少しだけ置く
+  （確かめるのは表示が壊れないことと文字列が変わらないことで、色ではない）。
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>review-assist editor harness</title>
+<style>
+  :root {
+    --vscode-editor-foreground: #3b3b3b;
+    --vscode-editor-background: #ffffff;
+    --vscode-editor-font-family: monospace;
+    --vscode-editor-font-size: 14px;
+    --vscode-font-family: sans-serif;
+    --vscode-textLink-foreground: #005fb8;
+    --vscode-errorForeground: #f85149;
+    --vscode-descriptionForeground: #3b3b3b;
+    --vscode-badge-background: #cccccc;
+    --vscode-badge-foreground: #3b3b3b;
+    --vscode-textCodeBlock-background: #f8f8f8;
+    --vscode-editorError-foreground: #f14c4c;
+    --vscode-editorWarning-foreground: #bf8803;
+    --vscode-editorInfo-foreground: #1a85ff;
+  }
+  html, body, #editor { height: 100%; margin: 0; }
+  body { background: var(--vscode-editor-background); }
+</style>
+</head>
+<body>
+<div id="editor"></div>
+<script src="../dist/webview.js"></script>
+</body>
+</html>

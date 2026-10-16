@@ -1,0 +1,152 @@
+// 編集画面（0.3.0）に拡張の側から送るもの。参照の札に出す題、参照の候補、図の PNG の場所。
+// 索引（ReviewIndex）を読むので webview の束には入らない。VS Code には依存しない。
+import { refKey, type CompletionCandidate } from './editing.js';
+import type { LineCol, MarkView, RefLabel, TextChange } from './editor-protocol.js';
+import { anchorMark, lineStarts, posAt, type AiResult, type MarksConfig, type MarksData } from './marks.js';
+import type { ReviewIndex } from './index.js';
+import { stripInline } from './parser.js';
+import { imagePreviewPath, resolveRefDetailed } from './resolve.js';
+import type { ParsedFile } from './types.js';
+
+
+/** その原稿にある参照の札を全部。同じ参照は 1 つにまとめる。 */
+export function refLabels(index: ReviewIndex, parsed: ParsedFile): Record<string, RefLabel> {
+  const out: Record<string, RefLabel> = {};
+  for (const ref of parsed.refs) {
+    if (!['chap', 'hd', 'table', 'list', 'img', 'fn'].includes(ref.op)) continue;
+    const key = refKey(ref.op, ref.arg);
+    if (out[key]) continue;
+    const r = resolveRefDetailed(index, ref);
+    if (r.kind === 'ambiguous') {
+      out[key] = { text: ref.arg, ok: false, ambiguous: true };
+      continue;
+    }
+    if (r.kind === 'miss') {
+      out[key] = { text: ref.arg, ok: false };
+      continue;
+    }
+    const t = r.target;
+    let text = ref.arg;
+    if (t.kind === 'chapter') {
+      const top = index.headingsOfChapter(t.chapter.id).find((h) => h.level === 1);
+      text = top?.plainTitle || t.chapter.id;
+    } else if (t.heading) {
+      text = t.heading.plainTitle;
+    } else if (t.block) {
+      // 脚注は本文（第 2 引数）、表・リスト・図はキャプション。無ければ id。
+      text = t.block.caption !== undefined ? stripInline(t.block.caption) : (t.block.id ?? ref.arg);
+    }
+    out[key] = { text, ok: true };
+  }
+  return out;
+}
+
+/**
+ * 参照の候補。同じ章の中は id（見出しはラベル、無ければ索引の鍵）だけ、ほかの章は `章ID|id`
+ * （Re:VIEW の `inline_hd` と `@<list>{chap|id}` の書き方）。`@<chap>` は章 ID。
+ */
+export function completionCandidates(index: ReviewIndex, file: string): CompletionCandidate[] {
+  const own = index.chapterOfFile(file);
+  const out: CompletionCandidate[] = [];
+  for (const id of index.chapterOrder) {
+    const top = index.headingsOfChapter(id).find((h) => h.level === 1);
+    out.push({ op: 'chap', id, detail: top?.plainTitle ?? '' });
+  }
+  const blockOps: Record<string, string[]> = { list: ['list'], table: ['table', 'imgtable'], img: ['image', 'imgtable', 'indepimage'] };
+  for (const chapter of index.chapterOrder) {
+    const prefix = chapter === own ? '' : `${chapter}|`;
+    for (const h of index.headingsOfChapter(chapter)) {
+      if (h.indexId === undefined) continue;
+      out.push({ op: 'hd', id: prefix + (h.label ?? h.indexId), detail: h.plainTitle });
+    }
+    for (const b of index.blocksOfChapter(chapter)) {
+      if (!b.id) continue;
+      for (const [op, kinds] of Object.entries(blockOps)) {
+        if (kinds.includes(b.kind)) out.push({ op, id: prefix + b.id, detail: b.caption !== undefined ? stripInline(b.caption) : '' });
+      }
+    }
+  }
+  return out;
+}
+
+/** その原稿の `//image` の id → PNG のワークスペース相対パス（設定 `imagePreview`）。 */
+export function imagePaths(index: ReviewIndex, parsed: ParsedFile): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const b of parsed.blocks) {
+    if (b.kind !== 'image' && b.kind !== 'indepimage') continue;
+    const p = imagePreviewPath(index, b);
+    if (p && b.id) out[b.id] = p;
+  }
+  return out;
+}
+
+const VERDICT_LABEL: Record<string, string> = { ok: 'OK', fix: '要修正', question: '要確認' };
+
+/**
+ * その原稿のマーカーを、今の文字列で探し直して編集画面に送る形にする（見失ったものは出さない。
+ * ビューには出ている）。
+ */
+export function markViews(text: string, file: string, data: MarksData, results: Map<string, AiResult>, config: MarksConfig): MarkView[] {
+  const out: MarkView[] = [];
+  const starts = lineStarts(text);
+  const lc = (offset: number): LineCol => {
+    const p = posAt(text, offset, starts);
+    return { line: p.line, col: p.column };
+  };
+  for (const m of data.marks) {
+    if (m.file !== file) continue;
+    const kind = config.kinds.find((k) => k.id === m.kind);
+    if (!kind) continue;
+    const a = anchorMark(text, m);
+    if (a.kind === 'lost') continue;
+    const view: MarkView = {
+      id: m.id,
+      from: lc(a.start),
+      to: lc(a.end),
+      kind: m.kind,
+      kindLabel: kind.label,
+      color: kind.color,
+      background: kind.background,
+      status: m.status,
+      note: m.note,
+    };
+    const r = results.get(m.id);
+    if (r) {
+      view.verdict = r.verdict;
+      view.verdictLabel = VERDICT_LABEL[r.verdict] ?? r.verdict;
+      view.comment = r.comment;
+      if (r.suggestion !== undefined) {
+        view.hasSuggestion = true;
+        view.suggestion = r.suggestion;
+      }
+      if (r.quote !== undefined && r.quote !== text.slice(a.start, a.end)) view.stale = true;
+    }
+    out.push(view);
+  }
+  return out;
+}
+
+/**
+ * webview から来た編集を文字列に当てる（拡張の側が「webview が持っているはずの文字列」を追うため）。
+ * 位置はどれも当てる前の文字列での行と桁。入れる文字列の改行は原稿の改行（`eol`）にそろえる
+ * （VS Code の TextDocument も同じようにそろえる）。
+ */
+export function applyTextChanges(text: string, changes: TextChange[], eol: string): string {
+  const starts: number[] = [0];
+  for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) starts.push(i + 1);
+  const lineEnd = (line: number) => {
+    if (line + 1 < starts.length) {
+      const nl = starts[line + 1] - 1;
+      return nl > 0 && text[nl - 1] === '\r' ? nl - 1 : nl;
+    }
+    return text.length;
+  };
+  const off = (p: LineCol) => {
+    const line = Math.min(Math.max(p.line, 0), starts.length - 1);
+    return Math.min(starts[line] + Math.max(p.col, 0), lineEnd(line));
+  };
+  const sorted = changes.map((c) => ({ from: off(c.from), to: off(c.to), insert: c.insert.replace(/\r?\n/g, eol) })).sort((a, b) => b.from - a.from);
+  let out = text;
+  for (const c of sorted) out = out.slice(0, c.from) + c.insert + out.slice(c.to);
+  return out;
+}
