@@ -28,6 +28,7 @@
 | ファイル | 中身 |
 |---|---|
 | [v0-plan.md](plans/v0-plan.md) | v0 の 4 段階（段階 1〜4 すべて済み） |
+| [marks-and-editor-plan.md](plans/marks-and-editor-plan.md) | 0.2・0.3。マーカーとまとめて AI に頼む仕組み（段階 1）、記法を畳む編集画面（段階 2）、紙面に近い見た目（段階 3）、配布（段階 4）。2026-10-17 作成 |
 
 ## worklog/ — 何がいつ
 
