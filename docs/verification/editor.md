@@ -184,7 +184,7 @@ Extension Development Host が使えないので、0.2.0 と同じく偽の `vsc
 
 ## `.vsix`
 
-`npm run package`（版は 0.2.0 のまま。上げるのは段階 4）: 12 ファイル、**208 KB**（0.2.0 は 82 KB）。
+`npm run package`（バージョンは 0.2.0 のまま。上げるのは段階 4）: 12 ファイル、**208 KB**（0.2.0 は 82 KB）。
 増えたのは `dist/webview.js`（345 KB、圧縮前）。`dist/extension.js` に CodeMirror が入っていないこと
 （`codemirror` も `EditorView` も 0 件）を grep で確かめた。
 

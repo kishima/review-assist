@@ -53,8 +53,10 @@ VS Code の Extension Development Host が使えない環境で作ったので�
 
 `vscode` の API と Node の標準ライブラリだけで書く。YAML のパーサも glob も持ち込まず、
 `catalog.yml` は行ベースで読み、glob は `src/core/glob.ts` に 30 行で書いた。
-理由は、原稿を書く人の環境に `npm install` を強いないため（0.1 の `.vsix` に入るのは
-`dist/*.js` だけで 42 KB）。
+理由は、原稿を書く人の環境に `npm install` を強いないため。`.vsix` に入る JavaScript は束ねた
+`dist/extension.js`（拡張本体）、`dist/webview.js`（編集画面、0.3.0）、`dist/cli.js`（本の CI から呼ぶ CLI）だけ
+（0.3.0 の `.vsix` は 192 KB。テスト用の `dist/core.js` は `.vscodeignore` で外す）。
+0.1.0 のときは `dist/*.js` だけで 42 KB だったが、0.2.0 までは `dist/core.js` も入っていた（`.vscodeignore` が外していなかった）。
 
 ### 例外: 編集画面の CodeMirror 6（0.3.0）
 

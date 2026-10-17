@@ -2,7 +2,7 @@
   "name": "review-assist",
   "displayName": "Review Assist",
   "description": "Re:VIEW の原稿を見直すための補助（構文色付け・索引・定義へ移動・ホバー・アウトライン・参照切れと規則の診断・マーカーとまとめて AI に頼む仕組み・記法を畳む編集画面）",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "kishima",
   "license": "MIT",
   "repository": {

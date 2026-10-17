@@ -129,10 +129,10 @@ PDF の文字の位置・大きさ・書体を pdf.js で取り、本文のペ�
 | 用途 | PDF | 既定の並び（理由） |
 |---|---|---|
 | 本文の和文 | Noto Serif CJK JP Regular | Noto Serif CJK JP、Noto Serif JP（同じ字形の Web 用）、Yu Mincho / YuMincho（Windows の標準の明朝）、Hiragino Mincho ProN（macOS） |
-| 本文の欧文 | Latin Modern Roman 10（LMRoman10-Regular） | LM Roman 10、CMU Serif（Computer Modern の Unicode 版）。どれも無ければ和文の書体の欧文 |
+| 本文の欧文 | Latin Modern Roman 10（LMRoman10-Regular） | LM Roman 10、CMU Serif（Computer Modern の Unicode 対応のもの）。どれも無ければ和文の書体の欧文 |
 | 見出しの和文 | Noto Sans CJK JP Bold | Noto Sans CJK JP、Noto Sans JP、Yu Gothic / YuGothic、Hiragino Sans |
 | 見出しの欧文 | Nimbus Sans L Bold | Nimbus Sans L、Helvetica、Arial、Liberation Sans（Nimbus Sans L は Helvetica の互換、Arial と Liberation Sans は Helvetica と字幅が同じ） |
-| コード | Bera Sans Mono（＋和文は Noto Serif CJK JP） | Bera Sans Mono、Bitstream Vera Sans Mono、DejaVu Sans Mono（Bera は Vera の LaTeX 版、DejaVu は Vera から派生した同じ字形）、和文は本文と同じ |
+| コード | Bera Sans Mono（＋和文は Noto Serif CJK JP） | Bera Sans Mono、Bitstream Vera Sans Mono、DejaVu Sans Mono（Bera は Vera を LaTeX 用にしたもの、DejaVu は Vera から派生した同じ字形）、和文は本文と同じ |
 
 欧文の大きさを和文の 1.082 倍にするのは、欧文の書体を `@font-face` の `size-adjust` で包んで行う（`unicode-range` で欧文と記号だけ）。
 `local()` で引くので、PC に無ければその面は使われず、次の書体（和文の書体の欧文）に落ちる。

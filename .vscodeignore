@@ -12,3 +12,5 @@ package-lock.json
 .vscodeignore
 .github/**
 tools/**
+# テスト（node:test）だけが読む束。拡張は dist/extension.js、dist/webview.js しか読まない（dist/cli.js は本の CI から使う）
+dist/core.js
