@@ -22,12 +22,15 @@ src/core/        VS Code に依存しない層。判断はすべてここにあ�
   booklayout.ts  本の組版の設定（`sty/*.sty` の本文の幅）を読む
   editor-protocol.ts 拡張と webview の間のやりとりの型
   editor-data.ts 拡張から編集画面に送るもの（参照の札、候補、図のパス、マーカーの位置、編集の当て方）
+  printed.ts     参照が紙面でどう印刷されるか（章・見出し・表・リスト・図・脚注の番号。Re:VIEW 2.5.0 の数え方）
   diagnostics.ts 診断
   all.ts         テストが読む口（dist/core.js になる）
 src/extension.ts VS Code の型に写すだけの層
 src/marks-ui.ts  マーカーの VS Code 側（装飾、ホバー、ビュー、コマンド）。これも写すだけ
 src/editor-ui.ts 編集画面の VS Code 側（CustomTextEditorProvider、TextDocument との同期、コマンド）
-src/webview/     編集画面の webview（CodeMirror 6。dist/webview.js になる）。editor.ts と style.ts
+src/pdf-ui.ts    「この節を PDF で開く」の PDF の画面の VS Code 側（WebviewPanel、PDF を workspace.fs で読んで送る）
+src/webview/     webview の中身。editor.ts と style.ts（編集画面、CodeMirror 6。dist/webview.js）、
+                 pdfview.ts（PDF の画面、pdf.js。dist/pdfview.js と dist/pdf.worker.min.mjs）
 src/cli.ts       VS Code 無しで全体を診断する CLI（`marks` でマーカーの一覧と依頼の書き出し）
 tools/           測る・確かめるためのスクリプト（.vsix には入らない）。measure-anchoring.js、
                  check-editor.mjs と check-editor-sync.mjs（編集画面を Chromium で開く）、editor-harness.html、
@@ -54,11 +57,12 @@ VS Code の Extension Development Host が使えない環境で作ったので�
 `vscode` の API と Node の標準ライブラリだけで書く。YAML のパーサも glob も持ち込まず、
 `catalog.yml` は行ベースで読み、glob は `src/core/glob.ts` に 30 行で書いた。
 理由は、原稿を書く人の環境に `npm install` を強いないため。`.vsix` に入る JavaScript は束ねた
-`dist/extension.js`（拡張本体）、`dist/webview.js`（編集画面、0.3.0）、`dist/cli.js`（本の CI から呼ぶ CLI）だけ
-（0.3.0 の `.vsix` は 192 KB。テスト用の `dist/core.js` は `.vscodeignore` で外す）。
+`dist/extension.js`（拡張本体）、`dist/webview.js`（編集画面、0.3.0）、`dist/pdfview.js` と `dist/pdf.worker.min.mjs`（PDF の画面、0.3.0）、
+`dist/cli.js`（本の CI から呼ぶ CLI）だけ（0.3.0 の `.vsix` は 716 KB で、うち pdf.js が圧縮して 520 KB ほど。テスト用の `dist/core.js` は
+`.vscodeignore` で外す）。
 0.1.0 のときは `dist/*.js` だけで 42 KB だったが、0.2.0 までは `dist/core.js` も入っていた（`.vscodeignore` が外していなかった）。
 
-### 例外: 編集画面の CodeMirror 6（0.3.0）
+### 例外: 編集画面の CodeMirror 6 と PDF の画面の pdf.js（0.3.0）
 
 記法を畳む編集画面（`src/webview/`）だけは CodeMirror 6（`@codemirror/state`、`view`、`commands`、
 `search`、`autocomplete`。`autocomplete` が `language` を引く）を使う。計画書
@@ -72,6 +76,9 @@ VS Code の Extension Development Host が使えない環境で作ったので�
   `src/webview/tsconfig.json` だけが DOM の型を持ち、拡張の側の `tsconfig.json` は `src/webview/` を外す
   （拡張の側で DOM を触る書き間違いを型で止める）。`npm run typecheck` は両方を回す
 * 取り消しの履歴（`@codemirror/commands` の `history`）は入れない。取り消しは VS Code の TextDocument のもの（下記）
+* 「この節を PDF で開く」の PDF の画面には pdf.js（`pdfjs-dist` の legacy ビルド。VS Code 1.85 の Chromium 114 で動くもの）を使う。
+  `dist/pdfview.js`（esm）に束ね、worker（`pdf.worker.min.mjs`）はそのまま置く。webview の中では拡張の資源の URL から直に
+  Worker を作れないので、取ってきて blob: の URL にする（CSP は `worker-src blob:` と `connect-src`）
 
 devDependencies の `vscode-textmate` と `vscode-oniguruma`（0.1.2 で追加、文法のテスト用）は
 `.vscodeignore` が `test/**` と `node_modules/**` を外しているので `.vsix` には入らない。
@@ -275,8 +282,33 @@ webview は文字が変わるたびに `planFolds` を回し直す（`vm.re` で
 * **見出しの横に PDF のページ。** 拡張が `headingPages`（`editor-data.ts`、`pdfpages.ts` の `lookupPage`）で、索引にその見出しの鍵が
   そのままある見出しだけページを送る（上の段に落としたページは、その見出しのページではないので出さない）。原稿が未保存か、
   原稿のファイルが PDF より新しいときは薄く出す（`pagesStale`）
+* 「この節を PDF で開く（横に）」は、PDF を拡張の側で `workspace.fs` で読み（WSL・SSH のリモートの窓でもワークスペースの側で読める）、
+  バイト列を webview に送る。webview は pdf.js で全ページの枠を並べ、見えたページから描き、言われたページへ飛ぶ。同じ PDF（更新時刻も同じ）
+  なら 2 回目からはページを飛ぶだけ。パネルは原稿の横（`ViewColumn.Beside`、フォーカスは原稿に残す）
 * 紙面からはみ出しそうな所（表の幅、コードの行長）は、既存の診断（`tableWidth`、`maxCodeLineLength`）がそのまま波線で出る
 * `editor.page.enable: false` で段階 2 の見た目（UI の書体、幅の制限なし）に戻る
+
+### 参照の札は紙面に印刷される形（`printed.ts`）
+
+原則は「畳んだ表示は紙面に出るものを出す」。`@<chap>` は `第3章`／`付録A`、`@<hd>` は `「9.19 EXCEPT、…」`、`@<table>` などは `表3.1`、
+`@<fn>` は `*2`。参照先の題やキャプションは札のホバー（`RefLabel.title`）。番号は Re:VIEW 2.5.0 の数え方に合わせた（推測しない）:
+
+* 章: CHAPS は 1 から `第%d章`、APPENDIX は 1 から `付録%pA`（A、B、…）、PREDEF・POSTDEF は番号なし（Re:VIEW では空の文字列が
+  印刷される。札が空では読めないので題を「」で出す）。`Book#parse_chapters`、`Chapter#format_number`、i18n.yml（ja）
+* 見出し: `HeadlineIndex.parse` と同じく、ブロックの中・column の中・題の無い見出しを飛ばし、`==` を 0 段目に段ごとに数える
+  （`[nonum]` も数える）。パーサの `Heading.indexId` がその規則で作ってあるので、それが付いた見出しを数える。
+  `LATEXBuilder#inline_hd_chap` と同じく、章に番号があり段の数が `config.yml` の `secnolevel`（無ければ 2）以下なら番号付き
+* 表・リスト・図: `Index.parse` と同じく章の中の通し番号（`imgtable` は表と図の両方）
+* 脚注: `LATEXBuilder#inline_fn` は参照の所に `\footnote` を出し、jsbook は章ごとに 1 から数えて `*1` と印刷する。だから章の中の
+  `@<fn>` の参照の順（同じ脚注を 2 回参照すると紙面では 2 つになるが、札は最初のものの番号）
+* 生成物の章（`book_mruby3` の `opcodes`）は、`catalog.yml` が指す生成物（最後にビルドしたとき）の並びで数え、生成物に無い鍵だけ元ファイルの並びで数える
+
+### コードの書体の並び
+
+コード（地の文の `@<code>` とコードの本文）の `font-family` は「設定 `fonts.code` の名前 → `var(--vscode-editor-font-family)` → `monospace` →
+`fonts.codeCjk`（和文）」の順に組む（`themeFor`）。総称の `monospace` はどの PC でも何かの等幅の書体に解決されるので、欧文がその後ろ
+（和文の明朝 = 本文の書体）に落ちることは無い。和字は等幅の書体に無ければ後ろの和文へ進む。0.3.0 の最初の形は `fonts.code` と `fonts.codeCjk`
+をそのままつないでいて、PC に等幅の名前が 1 つも無いと欧文が `Noto Serif CJK JP`・`Yu Mincho`（本文の書体）で描かれていた（Windows で起きた）。
 
 ### VS Code 無しで確かめる
 

@@ -4,6 +4,9 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM"],
+    // esbuild が束ねるので、ES モジュールの解決（pdf.js の .mjs を読むため）
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "rootDir": "..",
     "types": []
   },

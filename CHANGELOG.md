@@ -23,11 +23,20 @@
   測った比で出す（設定 `editor.page`、出どころは `docs/design/thresholds.md`）。書体は PDF と同じもの（Noto Serif CJK JP、LM Roman、
   Noto Sans CJK JP、Nimbus Sans L、Bera Sans Mono）が PC にあればそれ、無ければ近いもの。表は実際の書体で測って列をそろえる
 - 見出しの横に PDF のページ（設定 `pageIndex`）。原稿が未保存か PDF より新しいと薄く出る
+- 参照の札を**紙面に印刷される形**にした: `@<chap>` は `第3章`／`付録A`、`@<hd>` は `「9.19 EXCEPT、…」`（`secnolevel` まで番号）、
+  `@<table>`／`@<list>`／`@<img>` は `表3.1`／`リスト3.1`／`図3.1`、`@<fn>` は `*2`。参照先の題はホバーに。番号の付け方は Re:VIEW 2.5.0 に合わせ、
+  `book_mruby3` のビルドの .tex（表・リスト・図 88、見出し 166、章 277、脚注 3）と PDF（23 か所）で確かめた
+- コード（地の文の `@<code>` とコードの本文）の書体が、PC に PDF の等幅の書体が無いとき本文の明朝に落ちていたのを直した。
+  等幅の名前の後に Consolas・Cascadia Mono・Menlo、VS Code のエディタの書体、`monospace` が必ず入る
+- **「この節を PDF で開く」を VS Code の中の PDF の画面（pdf.js）にした**。原稿の横に開いてそのページへ。PDF は拡張の側で読んで送るので、
+  WSL・SSH のリモートの窓でも開ける（0.2.0 は既定のビューアに `file:` の URI を渡していて、リモートの窓では `vscode-remote:` のリンクになって開けなかった）。
+  前の動きは「この節を PDF で開く（外のビューアで）」
+- `.re` では VS Code の「non-basic ASCII」の帯と、紛らわしい文字・見えない文字の枠を既定で出さない（`configurationDefaults`）
 - 見出しの大きさの既定を HTML の既定から PDF を測った値に、表の列の間の既定を 2 から 3（測った値）に変えた
 - `tools/measure-page.mjs`（本の PDF を測る）と `tools/compare-page.mjs`（PDF と編集画面の改行の位置を比べる）。`book_mruby3` で、
   原稿で 1 行の段落の折り返しの位置が PDF と同じなのは 33%、±1 文字で 58%（`docs/verification/page.md`）
 - 実行時依存を持たない方針の例外として、CodeMirror 6 を webview の束（`dist/webview.js`）にだけ入れた
-- `.vsix` からテスト用の `dist/core.js` を外した。`.vsix` は 0.2.0 の 82 KB から 192 KB（ほとんどが `dist/webview.js`）
+- `.vsix` からテスト用の `dist/core.js` を外した。`.vsix` は 0.2.0 の 82 KB から 716 KB（編集画面の `dist/webview.js` と、PDF の画面の pdf.js）
 
 ## 0.2.0
 

@@ -4,14 +4,19 @@ import { refKey, type CompletionCandidate } from './editing.js';
 import type { HeadingPage, LineCol, MarkView, RefLabel, TextChange } from './editor-protocol.js';
 import { lookupPage, type PageIndex } from './pdfpages.js';
 import { anchorMark, lineStarts, posAt, type AiResult, type MarksConfig, type MarksData } from './marks.js';
-import type { ReviewIndex } from './index.js';
+import type { ReviewIndex, Target } from './index.js';
+import { readSecnolevel } from './booklayout.js';
+import { buildPrintedIndex, type PrintedIndex } from './printed.js';
 import { stripInline } from './parser.js';
 import { imagePreviewPath, resolveRefDetailed } from './resolve.js';
 import type { ParsedFile } from './types.js';
 
 
-/** その原稿にある参照の札を全部。同じ参照は 1 つにまとめる。 */
-export function refLabels(index: ReviewIndex, parsed: ParsedFile): Record<string, RefLabel> {
+/**
+ * その原稿にある参照の札を全部。同じ参照は 1 つにまとめる。札の文字は紙面に印刷されるもの（`第3章`、`「9.19 EXCEPT…」`、
+ * `表3.1`、`*2`。規則は printed.ts）、参照先の題やキャプションは `title`（ホバー）。
+ */
+export function refLabels(index: ReviewIndex, parsed: ParsedFile, printed: PrintedIndex = buildPrintedIndex(index), secnolevel = readSecnolevel(index.root)): Record<string, RefLabel> {
   const out: Record<string, RefLabel> = {};
   for (const ref of parsed.refs) {
     if (!['chap', 'hd', 'table', 'list', 'img', 'fn'].includes(ref.op)) continue;
@@ -26,20 +31,38 @@ export function refLabels(index: ReviewIndex, parsed: ParsedFile): Record<string
       out[key] = { text: ref.arg, ok: false };
       continue;
     }
-    const t = r.target;
-    let text = ref.arg;
-    if (t.kind === 'chapter') {
-      const top = index.headingsOfChapter(t.chapter.id).find((h) => h.level === 1);
-      text = top?.plainTitle || t.chapter.id;
-    } else if (t.heading) {
-      text = t.heading.plainTitle;
-    } else if (t.block) {
-      // 脚注は本文（第 2 引数）、表・リスト・図はキャプション。無ければ id。
-      text = t.block.caption !== undefined ? stripInline(t.block.caption) : (t.block.id ?? ref.arg);
-    }
-    out[key] = { text, ok: true };
+    out[key] = printedLabel(index, printed, secnolevel, ref.op, r.target);
   }
   return out;
+}
+
+function printedLabel(index: ReviewIndex, printed: PrintedIndex, secnolevel: number, op: string, t: Target): RefLabel {
+  const chap = t.chapter.id;
+  const chapNo = printed.chapterNumber.get(chap);
+  if (t.kind === 'chapter') {
+    const title = index.headingsOfChapter(chap).find((h) => h.level === 1)?.plainTitle || chap;
+    const label = printed.chapterLabel.get(chap) ?? '';
+    // 番号の無い章（前付け・後付け）は Re:VIEW では空の文字列が印刷される。札が空では読めないので題を出す
+    return { text: label || `「${title}」`, ok: true, title: `${label ? `${label} ` : ''}${title}` };
+  }
+  if (t.heading) {
+    const h = t.heading;
+    const nums = h.indexId !== undefined ? printed.headings.get(`${chap}|${h.indexId}`) : undefined;
+    const number = chapNo !== undefined && nums ? [chapNo, ...nums].join('.') : undefined;
+    const withNumber = number !== undefined && number.split('.').length <= secnolevel;
+    return { text: withNumber ? `「${number} ${h.plainTitle}」` : `「${h.plainTitle}」`, ok: true, title: h.path.filter(Boolean).join(' > ') };
+  }
+  const b = t.block!;
+  const caption = b.caption !== undefined ? stripInline(b.caption) : '';
+  if (op === 'fn') {
+    const n = printed.footnotes.get(`${chap}\u0000${b.id}`);
+    return { text: n !== undefined ? `*${n}` : '*', ok: true, title: caption };
+  }
+  const group = op === 'list' ? 'list' : op === 'table' ? 'table' : 'image';
+  const head = op === 'list' ? 'リスト' : op === 'table' ? '表' : '図';
+  const seq = printed.blocks.get(`${chap}\u0000${group}\u0000${b.id}`);
+  const number = seq === undefined ? b.id ?? '' : chapNo !== undefined ? `${chapNo}.${seq}` : String(seq);
+  return { text: `${head}${number}`, ok: true, title: caption };
 }
 
 /**

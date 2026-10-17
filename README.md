@@ -47,7 +47,7 @@ code --install-extension review-assist-0.3.0.vsix
 | ホバー | 参照の先の見出しの階層、ブロックのキャプション、ファイルと行。`@<img>` は設定 `imagePreview` の PNG があれば表示する |
 | アウトライン | 見出しの階層（既定）。設定 `outline.blocks` に入れた種類の `//list` `//table` `//image` `//footnote`（id を持つものだけ）を見出しの下に足せる |
 | 診断 | 下の表 |
-| PDF で開く | コマンド「Review Assist: この節を PDF で開く」。カーソルの直近の見出し（無ければ章の先頭）のページを設定 `pageIndex` の索引から引き、設定 `pdf` の PDF を `#page=N` 付きで既定のビューアに渡す |
+| PDF で開く | コマンド「Review Assist: この節を PDF で開く（横に）」。カーソルの直近の見出し（無ければ章の先頭）のページを設定 `pageIndex` の索引から引き、設定 `pdf` の PDF を **VS Code の中の PDF の画面**（pdf.js）で原稿の横に開いてそのページへ飛ぶ（0.3.0 から。WSL・SSH のリモートの窓でも開ける。もう一度実行するとその節のページへ飛ぶだけ）。0.2.0 までの、`#page=N` 付きで既定のビューアに渡す動きは「この節を PDF で開く（外のビューアで）」（リモートの窓では開けないことがある） |
 | マーカー | 範囲に印を付け、サイドバーの「マーカー」ビューで一覧。AI チェックの依頼を書き出し、結果をホバーとビューで読む。下記 |
 | 記法を畳む編集画面（0.3.0） | `.re` を、記法の印を隠して見た目で表す画面で開く。カーソルを入れた所だけ記法が出る。保存されるのは手で書いたのと同じ `.re`。下記 |
 | コマンド | 「この節を PDF で開く」「ワークスペースを索引し直す」「索引の状態を表示する」とマーカーのコマンド（どれも先頭に `Review Assist:`） |
@@ -77,6 +77,13 @@ code --install-extension review-assist-0.3.0.vsix
 コード系のブロック（`//list` `//emlist` `//emlistnum` `//listnum` `//cmd` `//source` `//terminal`）の
 **中身ではインライン命令を色付けしない**（コードとして読めることを優先した）。`//note` `//quote`
 `//table` `//footnote` の中身は地の文と同じ規則で色付けする。
+
+#### 和文の文字の警告を出さない（0.3.0）
+
+VS Code は、ASCII でない文字が多い文書に「This document contains many non-basic ASCII unicode characters」の帯を出し、
+全角の記号など紛らわしい文字・見えない文字に枠を付ける。日本語の原稿ではほぼ全部の行が当たるので、`.re`（言語 `review`）では
+既定で切ってある（`contributes.configurationDefaults` の `[review]` に `editor.unicodeHighlight.nonBasicASCII`・
+`ambiguousCharacters`・`invisibleCharacters` を `false`）。戻すなら設定で `"[review]": { "editor.unicodeHighlight.ambiguousCharacters": true }` などと書く。
 
 #### `atsushieno.language-review` を無効にする
 
@@ -219,7 +226,7 @@ node dist/cli.js marks /path/to/book --request  # AI チェックの依頼を書
 | `@<code>{…}` | 中身だけを等幅で |
 | `@<b>{…}` | 中身だけを太字で |
 | `@<hidx>{…}` | 印ごと隠す（紙面に出ないため）。設定 `editor.hidx` を `"faint"` にすると薄く出す |
-| `@<chap>` `@<hd>` `@<table>` `@<list>` `@<img>` `@<fn>` | 「章 題」「節 題」「表 キャプション」のような札。参照先が無い・曖昧なものは赤 |
+| `@<chap>` `@<hd>` `@<table>` `@<list>` `@<img>` `@<fn>` | **紙面に印刷される形**の札: `第3章`（付録は `付録A`）、`「9.19 EXCEPT、…」`（番号は `config.yml` の `secnolevel` まで）、`表3.1`、`リスト3.1`、`図3.1`、脚注は `*2`。参照先の題・キャプション・脚注の文は札のホバーに。番号の付け方は Re:VIEW 2.5.0 に合わせた（`docs/design/architecture.md`）。参照先が無い・曖昧なものは赤（種類と id を出す） |
 | `@<embed>{…}` | 「embed」の札（中身は札の説明に） |
 | `@<br>{}` | 「↵」の札 |
 | `@<href>{url,表示}` | 表示（無ければ url）をリンクの色で。url は札の説明に |
@@ -250,7 +257,7 @@ node dist/cli.js marks /path/to/book --request  # AI チェックの依頼を書
 | 本文の幅 | 本の `sty/*.sty` の `\setlength{\textwidth}{49zw}` を読み、全角 49 字の幅で折り返す（`book_mruby3` は `sty/mytextsize.sty`） |
 | 段落の頭 | 1 字下げる |
 | 行の送り、見出し・コード・表・キャプション・地の文の `@<code>` の大きさ、表の列の間 | `book_mruby3` の PDF を測った比（`docs/design/thresholds.md`）。設定 `editor.page` で変えられる |
-| 書体 | PDF と同じもの（Noto Serif CJK JP、LM Roman、Noto Sans CJK JP、Nimbus Sans L、Bera Sans Mono）が PC にあればそれ、無ければ近いもの（Noto Serif JP、Yu Mincho、Yu Gothic、Arial、DejaVu Sans Mono など） |
+| 書体 | PDF と同じもの（Noto Serif CJK JP、LM Roman、Noto Sans CJK JP、Nimbus Sans L、Bera Sans Mono）が PC にあればそれ、無ければ近いもの（Noto Serif JP、Yu Mincho、Yu Gothic、Arial、DejaVu Sans Mono など）。コードは等幅の書体が 1 つも無ければ Consolas・Cascadia Mono、VS Code のエディタの書体、`monospace` の順 |
 | 表 | セルを実際の書体で測って列をそろえる。見出しの行（区切りの行より上、区切りが無ければ 1 列目）はゴシック |
 | 見出しのページ | 見出しの横に PDF のページ（設定 `pageIndex`）。原稿が未保存か PDF より新しいと薄く出る |
 | はみ出し | 表の幅とコードの行長は、既存の診断（`table-width`、`code-line-length`）が波線で出る |
@@ -342,7 +349,7 @@ error が 1 件でもあれば終了コード 1。CI で原稿を見張るのに
 | `editor.page.codeScale` / `codeLineHeight` | `0.876` / `1.335` | コードの大きさ（1zw に対する比）と行の送り（コードの大きさに対する比） |
 | `editor.page.tableScale` / `tableLineHeight` | `0.9` / `1.61` | 表の文字の大きさと行の送り |
 | `editor.page.pageNumbers` | `true` | 見出しの横に PDF のページを出す |
-| `editor.page.fonts` | 上の表 | `body`、`bodyLatin`、`heading`、`headingLatin`、`code`、`codeCjk` の書体の並び（`bodyLatin` と `headingLatin` は `local()` の名前）。数の出どころと書体の理由は `docs/design/thresholds.md` |
+| `editor.page.fonts` | 上の表 | `body`、`bodyLatin`、`heading`、`headingLatin`、`code`、`codeCjk` の書体の並び（`bodyLatin` と `headingLatin` は `local()` の名前）。`code` の後ろには必ず VS Code のエディタの書体と `monospace` が足され、その後ろに `codeCjk` が来る（コードの欧文が本文の明朝に落ちない）。書体の理由は `docs/design/thresholds.md` |
 | `rules` | `[]` | 下記 |
 
 ### `outline.blocks`
@@ -437,7 +444,7 @@ id を持たないブロック（`//emlist` `//cmd`）は種類を足しても�
 **記法を畳む編集画面（0.3.0）**
 
 12. `contents/vm.re` を開き、エディタの右上のボタン（「記法を畳む編集画面 ⇔ 普通のエディタ」）。同じタブの位置に編集画面が開き、
-    普通のエディタのタブは閉じる。`@<code>` が等幅、参照が「章 …」「表 …」の札、`//list` が枠、`//image` の下に図、になっている
+    普通のエディタのタブは閉じる。`@<code>` が等幅、参照が「第2章」「表3.1」の札、`//list` が枠、`//image` の下に図、になっている
 13. 地の文の `@<code>{…}` の中をクリックする。その命令だけ `@<code>{…}` に戻る。外をクリックすると畳まれる。見出しの行、`//list` の頭の行、
     `//}` の行も、その行にカーソルを置くと元の書き方が出る
 14. **日本語 IME**: 地の文で「にほんご」と打って変換し、確定する。変換の途中で文字が消えたり二重になったり、候補の窓が飛んだりしないか。
@@ -459,9 +466,10 @@ id を持たないブロック（`//emlist` `//cmd`）は種類を足しても�
 **紙面に近い見た目（0.3.0）**
 
 26. 本文が全角 49 字で折り返し、段落の頭が 1 字下がっている。見出しがゴシックで、横に `p.37` のようなページが出ている
-27. 「この節を PDF で開く」で PDF と見比べる。文字の大きさの比（見出し・コード・表）、行の間、書体が近いか。どの書体が使われているか
+27. 「この節を PDF で開く（横に）」で、原稿の横に PDF の画面が開き、その節のページが出る（WSL の窓でも）。別の節で実行するとそのページへ飛ぶ。PDF と見比べる。文字の大きさの比（見出し・コード・表）、行の間、書体が近いか。どの書体が使われているか
     （開発者ツール: コマンド「開発者: Webview 開発者ツールを開く」→ 文字を選んで「Computed」の「Rendered Fonts」）を教えてください
-28. 表の列がそろっている。セルの中を打っても列がそろったまま
+28. 表の列がそろっている。セルの中を打っても列がそろったまま。地の文の `@<code>` が等幅の書体（Consolas など）で出ている
+    （本文の明朝ではない）。`.re` を開いても「non-basic ASCII」の帯や全角の記号の枠が出ない
 29. 原稿を直して保存すると、見出しの横のページが薄くなる（PDF が原稿より古いため）。本をビルドし直すと濃くなる
 
 **どちらも**

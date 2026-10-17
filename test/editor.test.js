@@ -26,6 +26,8 @@ const {
   defaultEditorConfig,
   ReviewIndex,
   readTextWidth,
+  readSecnolevel,
+  buildPrintedIndex,
   resolveTextWidth,
   headingPages,
 } = require('../dist/core.js');
@@ -210,15 +212,46 @@ function index() {
   return idx;
 }
 
-test('札: 参照先の題、見つからないもの、曖昧なもの', () => {
+test('札: 紙面に印刷される形（第N章、「N.M 題」、リストN.M、表N.M、図N.M、*N）、題はホバーに', () => {
   const idx = index();
   const labels = refLabels(idx, idx.files.get('contents/first.re'));
-  assert.deepStrictEqual(labels[refKey('list', 'code1')], { text: 'サンプル。R(n) はキャプションなので地の文', ok: true });
-  assert.deepStrictEqual(labels[refKey('fn', 'note1')], { text: '脚注の本文。genも見よ', ok: true });
+  assert.deepStrictEqual(labels[refKey('chap', 'gen')], { text: '第2章', ok: true, title: '第2章 gen' });
+  assert.deepStrictEqual(labels[refKey('list', 'code1')], { text: 'リスト1.1', ok: true, title: 'サンプル。R(n) はキャプションなので地の文' });
+  assert.strictEqual(labels[refKey('table', 't1')].text, '表1.1');
+  assert.strictEqual(labels[refKey('img', 'fig1')].text, '図1.1');
+  assert.deepStrictEqual(labels[refKey('fn', 'note1')], { text: '*1', ok: true, title: '脚注の本文。genも見よ' });
+  // secnolevel の既定は 2（Re:VIEW 2.5.0）。2.1 は番号付き、1.1.1 は番号なし
+  assert.strictEqual(labels[refKey('hd', 'gen|chap_A')].text, '「2.1 A命令」');
+  assert.strictEqual(labels[refKey('hd', '導入|細かい話')].text, '「細かい話」');
+  assert.strictEqual(refLabels(idx, idx.files.get('contents/first.re'), undefined, 4)[refKey('hd', '導入|細かい話')].text, '「1.1.1 細かい話」');
   assert.strictEqual(labels[refKey('chap', 'nosuch')].ok, false);
   assert.strictEqual(labels[refKey('list', 'nosuchlist')].ok, false);
   assert.deepStrictEqual(labels[refKey('hd', 'チャート')], { text: 'チャート', ok: false, ambiguous: true });
-  assert.strictEqual(labels[refKey('hd', '導入|細かい話')].text, '細かい話');
+});
+
+test('紙面の番号: CHAPS は 1 から、APPENDIX は A から、PREDEF・POSTDEF は番号なし。見出しは column と題の無いものを数えない', () => {
+  const idx = index();
+  const p = buildPrintedIndex(idx);
+  assert.deepStrictEqual([...p.chapterLabel], [
+    ['preface', ''],
+    ['first', '第1章'],
+    ['gen', '第2章'],
+    ['appx', '付録A'],
+    ['after', ''],
+  ]);
+  assert.deepStrictEqual(p.headings.get('first|導入'), [1]);
+  assert.deepStrictEqual(p.headings.get('first|導入|細かい話'), [1, 1]);
+  assert.deepStrictEqual(p.headings.get('first|別の節'), [2]);
+  // ==[column] の中の見出しは数えない
+  assert.strictEqual([...p.headings.keys()].some((k) => k.includes('中の見出し')), false);
+});
+
+test('secnolevel: config.yml を読む（無ければ 2）', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ra-cfg-'));
+  assert.strictEqual(readSecnolevel(dir), 2);
+  fs.writeFileSync(path.join(dir, 'config.yml'), '#secnolevel: 2\nsecnolevel: 4   # 小節にも\n');
+  assert.strictEqual(readSecnolevel(dir), 4);
+  fs.rmSync(dir, { recursive: true });
 });
 
 test('候補: 同じ章は id だけ、ほかの章は 章ID|id、章は章 ID', () => {

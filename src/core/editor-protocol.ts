@@ -8,9 +8,12 @@ import type { CompletionCandidate } from './editing.js';
 
 /** 参照の札 1 枚。`ok` が false なら先が無い（赤）。 */
 export interface RefLabel {
+  /** 札の文字（紙面に印刷されるもの）。 */
   text: string;
   ok: boolean;
   ambiguous?: boolean;
+  /** 参照先の題・キャプション・脚注の文（ホバー）。 */
+  title?: string;
 }
 
 export interface LineCol {
@@ -97,3 +100,8 @@ export type ViewMessage =
   | { type: 'sync' }
   | { type: 'command'; command: string; args: unknown[] }
   | { type: 'log'; level: 'info' | 'error'; message: string };
+
+/** 「この節を PDF で開く」の PDF の画面（0.3.0）: 拡張 → webview。 */
+export type PdfHostMessage = { type: 'load'; data: Uint8Array; page: number; name: string } | { type: 'goto'; page: number };
+/** PDF の画面: webview → 拡張。 */
+export type PdfViewMessage = { type: 'ready' } | { type: 'shown'; page: number; pages: number } | { type: 'error'; message: string };

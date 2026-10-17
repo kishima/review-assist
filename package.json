@@ -60,7 +60,11 @@
       },
       {
         "command": "reviewAssist.openInPdf",
-        "title": "Review Assist: この節を PDF で開く"
+        "title": "Review Assist: この節を PDF で開く（横に）"
+      },
+      {
+        "command": "reviewAssist.openInPdfExternal",
+        "title": "Review Assist: この節を PDF で開く（外のビューアで）"
       },
       {
         "command": "reviewAssist.addMarkAiCheck",
@@ -239,6 +243,11 @@
           "command": "reviewAssist.toggleEditor",
           "when": "webviewId == 'reviewAssist.editor'",
           "group": "reviewAssist3@1"
+        },
+        {
+          "command": "reviewAssist.openInPdf",
+          "when": "webviewId == 'reviewAssist.editor'",
+          "group": "reviewAssist3@2"
         }
       ]
     },
@@ -253,7 +262,14 @@
         ],
         "priority": "option"
       }
-    ]
+    ],
+    "configurationDefaults": {
+      "[review]": {
+        "editor.unicodeHighlight.nonBasicASCII": false,
+        "editor.unicodeHighlight.ambiguousCharacters": false,
+        "editor.unicodeHighlight.invisibleCharacters": false
+      }
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs",

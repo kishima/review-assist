@@ -13,6 +13,7 @@ import type { Diagnostic, InlineRef, Span } from './core/types.js';
 import { emptyMarks, type MarksData, type AiResultsLoad } from './core/marks.js';
 import { MarksUi, type MarkHost } from './marks-ui.js';
 import { EDITOR_VIEW_TYPE, ReviewEditorProvider } from './editor-ui.js';
+import { PdfPanel } from './pdf-ui.js';
 
 const LANGUAGE = 'review';
 
@@ -31,6 +32,7 @@ let collection: vscode.DiagnosticCollection;
 let output: vscode.OutputChannel;
 let marksUi: MarksUi;
 let editorProvider: ReviewEditorProvider | undefined;
+let pdfPanel: PdfPanel;
 
 /** そのファイルを含むワークスペース（catalog.yml のあるディレクトリ）を探す。 */
 function workspaceOf(uri: vscode.Uri): Workspace | undefined {
@@ -209,29 +211,32 @@ const symbolProvider: vscode.DocumentSymbolProvider = {
 };
 
 /**
- * 「この節を PDF で開く」。カーソルの直近の見出し（無ければ章の先頭）のページを索引 JSON から
- * 引いて、`file:///…/book.pdf#page=N` を既定のビューアに渡す。開けない理由は全部メッセージで言う。
+ * 「この節を PDF で開く」の、どの PDF のどのページか。カーソルの直近の見出し（無ければ章の先頭）のページを索引 JSON から引く。
+ * 開けない理由は全部メッセージで言い、undefined を返す。原稿は普通のエディタか、記法を畳む編集画面の前にある方。
  */
-function openInPdf(): void {
+function pdfTarget(): { pdfAbs: string; pdfRel: string; page: number; where: string } | undefined {
   const editor = vscode.window.activeTextEditor;
-  if (!editor) {
+  const custom = editorProvider?.activeSelection();
+  const document = editor?.document ?? custom?.document;
+  const line = editor ? editor.selection.active.line : custom?.active.line;
+  if (!document || line === undefined) {
     void vscode.window.showInformationMessage('review-assist: エディタが開いていません');
-    return;
+    return undefined;
   }
-  const ws = workspaceOf(editor.document.uri);
+  const ws = workspaceOf(document.uri);
   if (!ws) {
     void vscode.window.showInformationMessage('review-assist: このファイルは原稿（catalog.yml のあるフォルダ）の中にありません');
-    return;
+    return undefined;
   }
   const pdfRel = ws.index.config.pdf;
   if (!pdfRel) {
     void vscode.window.showWarningMessage('review-assist: .review-assist.json に "pdf"（PDF のパス）を書いてください');
-    return;
+    return undefined;
   }
   const pdfAbs = ws.index.abs(pdfRel);
   if (!fs.existsSync(pdfAbs)) {
     void vscode.window.showWarningMessage(`review-assist: PDF ${pdfRel} がありません（先に本をビルドしてください）`);
-    return;
+    return undefined;
   }
   const load = loadPageIndex(ws.index);
   if (!load.pages) {
@@ -242,31 +247,54 @@ function openInPdf(): void {
           ? `索引 ${load.path} がありません（本側の tools/pdf_pages.py が PDF と一緒に作ります）`
           : `索引 ${load.path} が読めません（${load.error}）`;
     void vscode.window.showWarningMessage(`review-assist: ${why}`);
-    return;
+    return undefined;
   }
 
-  const rel = ws.index.rel(editor.document.uri.fsPath);
-  ws.index.updateFile(rel, editor.document.getText());
-  const found = lookupPage(ws.index, load.pages, rel, editor.selection.active.line);
+  const rel = ws.index.rel(document.uri.fsPath);
+  ws.index.updateFile(rel, document.getText());
+  const found = lookupPage(ws.index, load.pages, rel, line);
   if (found.kind === 'no-chapter') {
     void vscode.window.showInformationMessage(`review-assist: ${rel} は catalog.yml のどの章にも属していないので、ページが決まりません`);
-    return;
+    return undefined;
   }
   if (found.kind === 'not-found') {
     void vscode.window.showInformationMessage(
       `review-assist: この見出しは索引にありません（引いた鍵: ${found.keys.join('、')}）。PDF を作り直すと入ります`
     );
-    return;
+    return undefined;
   }
-
-  // `file:///…/book.pdf#page=N`。ページ番号の渡し方は PDF ビューア側の約束（Adobe の
-  // open parameters。Chrome / Edge / Firefox / Preview も同じ形を読む）。
-  const uri = vscode.Uri.file(pdfAbs).with({ fragment: `page=${found.page}` });
-  void vscode.env.openExternal(uri).then((ok) => {
-    if (!ok) void vscode.window.showWarningMessage(`review-assist: ${pdfRel} を開けませんでした`);
-  });
   const where = found.via === 'heading' ? found.heading?.plainTitle : found.via === 'chapter' ? '章の先頭' : `上の段 ${found.key}`;
-  output.appendLine(`PDF: ${pdfRel} p.${found.page}（${where ?? found.key}）`);
+  return { pdfAbs, pdfRel, page: found.page, where: where ?? found.key };
+}
+
+/**
+ * 「この節を PDF で開く」（0.3.0 から）: VS Code の中の PDF の画面（pdf.js）を原稿の横に開いて、そのページへ。
+ * PDF は拡張の側で読んで送るので、WSL・SSH のリモートの窓でも開ける。
+ */
+function openInPdf(): void {
+  const t = pdfTarget();
+  if (!t) return;
+  // ワークスペースの URI の形（リモートなら vscode-remote:）で読む。拡張はワークスペースの側で動いているので file: でも読めるが、
+  // workspace.fs を通しておけば、どちらの側で動いても同じ
+  const folder = workspaces.find((w) => t.pdfAbs.startsWith(w.index.root))?.folder;
+  const uri = folder ? folder.uri.with({ path: vscode.Uri.file(t.pdfAbs).path }) : vscode.Uri.file(t.pdfAbs);
+  void pdfPanel.show(uri, t.page).catch((e) => void vscode.window.showWarningMessage(`review-assist: ${t.pdfRel} を開けませんでした（${e instanceof Error ? e.message : String(e)}）`));
+  output.appendLine(`PDF: ${t.pdfRel} p.${t.page}（${t.where}）`);
+}
+
+/**
+ * 「この節を PDF で開く（外のビューアで）」: 0.2.0 までの動き。`file:///…/book.pdf#page=N` を既定のビューアに渡す
+ * （ページ番号の渡し方は Adobe の open parameters。Chrome / Edge / Firefox / Preview も同じ形を読む）。
+ * リモートの窓（WSL・SSH）では、手元の PC から file: の PDF が見えないので開けないことがある。
+ */
+function openInPdfExternal(): void {
+  const t = pdfTarget();
+  if (!t) return;
+  const uri = vscode.Uri.file(t.pdfAbs).with({ fragment: `page=${t.page}` });
+  void vscode.env.openExternal(uri).then((ok) => {
+    if (!ok) void vscode.window.showWarningMessage(`review-assist: ${t.pdfRel} を開けませんでした`);
+  });
+  output.appendLine(`PDF（外）: ${t.pdfRel} p.${t.page}（${t.where}）`);
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -274,6 +302,8 @@ export function activate(context: vscode.ExtensionContext): void {
   collection = vscode.languages.createDiagnosticCollection('review-assist');
   context.subscriptions.push(output, collection);
   marksUi = new MarksUi(output, workspaceOf);
+  pdfPanel = new PdfPanel(context.extensionUri, output);
+  context.subscriptions.push(pdfPanel);
   context.subscriptions.push(marksUi, vscode.window.registerTreeDataProvider('reviewAssist.marks', marksUi));
 
   refreshAll();
@@ -300,6 +330,7 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage('review-assist: 索引を作り直しました');
     }),
     vscode.commands.registerCommand('reviewAssist.openInPdf', () => openInPdf()),
+    vscode.commands.registerCommand('reviewAssist.openInPdfExternal', () => openInPdfExternal()),
     vscode.commands.registerCommand('reviewAssist.showIndexStats', () => {
       output.clear();
       for (const ws of workspaces) {

@@ -268,6 +268,7 @@ class ImageWidget extends WidgetType {
   }
 }
 
+/** 参照の先がまだ分からないときの札の頭。 */
 const OP_LABEL: Record<string, string> = { chap: '章', hd: '節', table: '表', list: 'リスト', img: '図', fn: '脚注' };
 const LOOK_LABEL: Record<string, string> = { list: 'リスト', listnum: 'リスト', emlist: '', emlistnum: '', cmd: 'cmd', source: 'ソース', table: '表', image: '図' };
 
@@ -320,8 +321,10 @@ function inlineDecos(it: InlineFold, shared: Shared, out: Range<Decoration>[]): 
       const label = shared.refs[refKey(it.op, it.arg)];
       const head = OP_LABEL[it.op] ?? it.op;
       const cls = label === undefined ? 'cm-ra-chip-ref' : label.ok ? 'cm-ra-chip-ref' : 'cm-ra-chip-broken';
-      const text = `${head} ${label?.text ?? it.arg}`;
-      const title = `@<${it.op}>{${it.arg}}${label && !label.ok ? (label.ambiguous ? '（曖昧）' : '（先が見つからない）') : ''}`;
+      // 札は紙面に印刷される文字（第3章、表3.1、*2 など。拡張が作る）。先が無い・まだ届いていないときは種類と id
+      const text = label?.ok ? label.text : `${head} ${it.arg}`;
+      const why = label && !label.ok ? (label.ambiguous ? '（曖昧）' : '（先が見つからない）') : '';
+      const title = `${label?.title ? `${label.title}\n` : ''}@<${it.op}>{${it.arg}}${why}`;
       out.push(Decoration.replace({ widget: new ChipWidget(text, cls, title) }).range(it.from, it.to));
     }
   }
@@ -704,7 +707,10 @@ function themeFor(config: EditorConfig, textWidth: TextWidthInfo): Extension {
     // 紙面に近い見た目（段階 3）。1zw = エディタの文字の大きさ。比は設定 editor.page（本の PDF を測った値）
     const body = family(['ra-body-latin', ...p.fonts.body]);
     const heading = family(['ra-heading-latin', ...p.fonts.heading]);
-    const code = family([...p.fonts.code, ...p.fonts.codeCjk]);
+    // コード: 等幅の名前 → VS Code のエディタの書体 → monospace → 和文。総称の monospace は必ずある書体に解決されるので、
+    // 欧文がその後ろ（和文の明朝 = 本文の書体）に落ちることは無い。和字は等幅の書体に無ければ後ろの和文へ進む
+    const named = (names: string[]) => family(names.filter((n) => !GENERIC_FAMILIES.has(n)));
+    const code = [named(p.fonts.code), 'var(--vscode-editor-font-family)', 'monospace', named(p.fonts.codeCjk)].filter(Boolean).join(', ');
     rules['.cm-content'] = { width: `${textWidth.zw}em`, maxWidth: '100%', flexGrow: '0', margin: '0 auto', fontFamily: body, lineHeight: String(p.lineHeight) };
     // CodeMirror の行の左右の余白を外す（本文の幅 = 行の幅にする）
     rules['.cm-line'] = { padding: '0' };
@@ -795,7 +801,10 @@ function cellWidth(raw: string, th: boolean, shared: Shared, fonts: CellFonts): 
       const c = op.arg.indexOf(',');
       w += measure(c >= 0 ? op.arg.slice(c + 1) : op.arg, plain);
     } else if (op.op === 'code') w += measure(op.arg, fonts.code);
-    else if (OP_LABEL[op.op]) w += measure(`${OP_LABEL[op.op]} ${shared.refs[refKey(op.op, op.arg)]?.text ?? op.arg}`, fonts.chip) + fonts.chipExtra;
+    else if (OP_LABEL[op.op]) {
+      const label = shared.refs[refKey(op.op, op.arg)];
+      w += measure(label?.ok ? label.text : `${OP_LABEL[op.op]} ${op.arg}`, fonts.chip) + fonts.chipExtra;
+    }
     else w += measure(op.arg, plain);
     i = op.end;
   }

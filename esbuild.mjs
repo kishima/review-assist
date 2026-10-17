@@ -2,6 +2,7 @@
 // 実行時依存は持たない方針なので bundle して 1 ファイルずつにする。`vscode` だけは
 // VS Code が実行時に用意するので external にする。
 import { build, context } from 'esbuild';
+import { copyFile, mkdir } from 'node:fs/promises';
 
 const watch = process.argv.includes('--watch');
 
@@ -35,7 +36,24 @@ const targets = [
     entryPoints: ['src/webview/editor.ts'],
     outfile: 'dist/webview.js',
   },
+  // 「この節を PDF で開く」の VS Code の中の PDF の画面（0.3.0）。pdf.js の legacy ビルド（Chromium 114 で動くもの）を束ねる。
+  // pdf.js は ES モジュール（トップレベルの await を含む）なので esm で出し、webview から <script type="module"> で読む。
+  {
+    bundle: true,
+    platform: 'browser',
+    target: 'chrome114',
+    format: 'esm',
+    sourcemap: true,
+    minify: true,
+    logLevel: 'info',
+    entryPoints: ['src/webview/pdfview.ts'],
+    outfile: 'dist/pdfview.js',
+  },
 ];
+
+// pdf.js の worker は束ねずにそのまま dist/ に置く（webview が取ってきて blob の URL から Worker にする）。
+await mkdir('dist', { recursive: true });
+await copyFile('node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs', 'dist/pdf.worker.min.mjs');
 
 if (watch) {
   for (const t of targets) {

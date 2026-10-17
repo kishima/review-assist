@@ -20,7 +20,7 @@ export const css = {
   '.cm-ra-h': { fontWeight: 'bold' },
 
   // インライン
-  '.cm-ra-code': { fontFamily: 'var(--vscode-editor-font-family)', backgroundColor: 'var(--vscode-textCodeBlock-background)' },
+  '.cm-ra-code': { fontFamily: 'var(--vscode-editor-font-family), monospace', backgroundColor: 'var(--vscode-textCodeBlock-background)' },
   '.cm-ra-bold': { fontWeight: 'bold' },
   '.cm-ra-faint, .cm-ra-comment': { color: 'var(--vscode-descriptionForeground)' },
   '.cm-ra-link': { color: 'var(--vscode-textLink-foreground)', textDecoration: 'underline' },
@@ -48,13 +48,13 @@ export const css = {
   },
   '.cm-ra-head': { color: 'var(--vscode-descriptionForeground)' },
   '.cm-ra-caption': { marginLeft: '0.5em' },
-  '.cm-ra-body-code, .cm-ra-dir-code ~ .cm-ra-body-code': {
-    fontFamily: 'var(--vscode-editor-font-family)',
+  '.cm-ra-body-code': {
+    fontFamily: 'var(--vscode-editor-font-family), monospace',
     backgroundColor: 'var(--vscode-textCodeBlock-background)',
   },
   '.cm-ra-body-quote': { borderLeft: '1px solid var(--vscode-textBlockQuote-border, var(--vscode-panel-border))', paddingLeft: '1em' },
   '.cm-ra-end': { borderBottom: '1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border))' },
-  '.cm-ra-tr': { fontFamily: 'var(--vscode-editor-font-family)' },
+  '.cm-ra-tr': { fontFamily: 'var(--vscode-editor-font-family), monospace' },
   '.cm-ra-th': { fontWeight: 'bold' },
   '.cm-ra-trule': { borderBottom: '1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border))' },
   '.cm-ra-tab': { display: 'inline-block', borderRight: '1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border))' },
@@ -83,7 +83,7 @@ export const css = {
     border: '1px solid var(--vscode-editorHoverWidget-border)',
   },
   '.cm-ra-hover': { padding: '0.3em 0.6em', maxWidth: '40em' },
-  '.cm-ra-hover pre': { whiteSpace: 'pre-wrap', fontFamily: 'var(--vscode-editor-font-family)' },
+  '.cm-ra-hover pre': { whiteSpace: 'pre-wrap', fontFamily: 'var(--vscode-editor-font-family), monospace' },
   '.cm-ra-hover-mark + .cm-ra-hover-mark, .cm-ra-hover-diag + .cm-ra-hover-mark': {
     borderTop: '1px solid var(--vscode-editorHoverWidget-border)',
   },

@@ -132,7 +132,10 @@ PDF の文字の位置・大きさ・書体を pdf.js で取り、本文のペ�
 | 本文の欧文 | Latin Modern Roman 10（LMRoman10-Regular） | LM Roman 10、CMU Serif（Computer Modern の Unicode 対応のもの）。どれも無ければ和文の書体の欧文 |
 | 見出しの和文 | Noto Sans CJK JP Bold | Noto Sans CJK JP、Noto Sans JP、Yu Gothic / YuGothic、Hiragino Sans |
 | 見出しの欧文 | Nimbus Sans L Bold | Nimbus Sans L、Helvetica、Arial、Liberation Sans（Nimbus Sans L は Helvetica の互換、Arial と Liberation Sans は Helvetica と字幅が同じ） |
-| コード | Bera Sans Mono（＋和文は Noto Serif CJK JP） | Bera Sans Mono、Bitstream Vera Sans Mono、DejaVu Sans Mono（Bera は Vera を LaTeX 用にしたもの、DejaVu は Vera から派生した同じ字形）、和文は本文と同じ |
+| コード | Bera Sans Mono（＋和文は Noto Serif CJK JP） | Bera Sans Mono、Bitstream Vera Sans Mono、DejaVu Sans Mono（Bera は Vera を LaTeX 用にしたもの、DejaVu は Vera から派生した同じ字形）、Consolas・Cascadia Mono（Windows に入っている等幅）、Menlo（macOS）。その後に必ず VS Code のエディタの書体と `monospace`、最後に和文（本文と同じ明朝） |
+
+コードの並びの終わりに必ず `monospace` を置くのは、PC に等幅の名前が 1 つも無いとき、欧文が後ろの和文の書体（本文の明朝）で描かれないため
+（0.3.0 を Windows で試したとき、地の文の `@<code>` が本文の明朝で出た。`tools/check-fonts.mjs` で前後を確かめた。`../verification/feedback-0.3.0.md`）。
 
 欧文の大きさを和文の 1.082 倍にするのは、欧文の書体を `@font-face` の `size-adjust` で包んで行う（`unicode-range` で欧文と記号だけ）。
 `local()` で引くので、PC に無ければその面は使われず、次の書体（和文の書体の欧文）に落ちる。

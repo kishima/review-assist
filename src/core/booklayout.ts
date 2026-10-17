@@ -41,3 +41,22 @@ export function resolveTextWidth(root: string, config: EditorConfig): TextWidth 
   if (typeof w === 'number') return { zw: w, from: '設定' };
   return readTextWidth(root) ?? { zw: DEFAULT_TEXT_WIDTH_ZW, from: '既定' };
 }
+
+/** Re:VIEW 2.5.0 の `secnolevel` の既定（`lib/review/configure.rb` の `'secnolevel' => 2`）。 */
+export const DEFAULT_SECNOLEVEL = 2;
+
+/** `config.yml` の `secnolevel:`（番号を付ける見出しの深さ。`@<hd>` の印刷に番号を付けるか）。`#` から後はコメント。 */
+export function readSecnolevel(root: string): number {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(root, 'config.yml'), 'utf8');
+  } catch {
+    return DEFAULT_SECNOLEVEL;
+  }
+  let found = DEFAULT_SECNOLEVEL;
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^secnolevel:\s*(\d+)/.exec(raw.replace(/#.*$/, ''));
+    if (m) found = Number(m[1]);
+  }
+  return found;
+}

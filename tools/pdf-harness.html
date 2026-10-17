@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- 「この節を PDF で開く」の PDF の画面（dist/pdfview.js）を VS Code 無しで開く台。tools/check-pdfview.mjs が http で配って開く。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="pdf-worker" content="/dist/pdf.worker.min.mjs">
+<title>pdf harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #888; }
+  #pages { height: 100%; overflow-y: auto; }
+  .page { background: #fff; margin: 0 0 8px 0; }
+</style>
+</head>
+<body>
+<div id="pages"></div>
+<script type="module" src="/dist/pdfview.js"></script>
+</body>
+</html>

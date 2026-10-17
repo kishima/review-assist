@@ -14,6 +14,7 @@ export * from './marks.js';
 export * from './outline.js';
 export * from './parser.js';
 export * from './pdfpages.js';
+export * from './printed.js';
 export * from './resolve.js';
 export * from './tablewidth.js';
 export * from './types.js';

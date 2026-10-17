@@ -13,9 +13,9 @@ export interface PageFonts {
   heading: string[];
   /** 見出しの欧文（`local()` の名前。太字）。 */
   headingLatin: string[];
-  /** コードの等幅。 */
+  /** コードの等幅。総称（monospace など）は書いても外し、後ろに VS Code のエディタの書体と monospace を必ず足す。 */
   code: string[];
-  /** コードの中の和文。 */
+  /** コードの中の和文（monospace の後ろに並ぶ。欧文はここまで落ちない）。 */
   codeCjk: string[];
 }
 
@@ -84,10 +84,12 @@ export function defaultPageFonts(): PageFonts {
       'LiberationSans-Bold',
       'Liberation Sans Bold',
     ],
-    // PDF のコードは Bera Sans Mono（Bitstream Vera Sans Mono の LaTeX 版）。DejaVu Sans Mono は Vera から派生した同じ字形
-    code: ['Bera Sans Mono', 'Bitstream Vera Sans Mono', 'DejaVu Sans Mono', 'monospace'],
-    // PDF のコードの中の和文は本文と同じ明朝
-    codeCjk: ['Noto Serif CJK JP', 'Noto Serif JP', 'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'serif'],
+    // PDF のコードは Bera Sans Mono（Bitstream Vera Sans Mono の LaTeX 用）。DejaVu Sans Mono は Vera から派生した同じ字形。
+    // どれも TeX を入れていない PC には無いことが多いので、Windows の Consolas・Cascadia Mono と macOS の Menlo を続ける。
+    // この後に必ず VS Code のエディタの書体（--vscode-editor-font-family）と総称の monospace が入る（editor.ts の themeFor）
+    code: ['Bera Sans Mono', 'Bitstream Vera Sans Mono', 'DejaVu Sans Mono', 'Consolas', 'Cascadia Mono', 'Menlo'],
+    // PDF のコードの中の和文は本文と同じ明朝。等幅の書体（monospace まで）に和字が無いときだけ使われる
+    codeCjk: ['Noto Serif CJK JP', 'Noto Serif JP', 'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN'],
   };
 }
 
