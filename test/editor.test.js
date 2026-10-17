@@ -3,6 +3,8 @@
 // webview の中身そのもの（CodeMirror の表示）は tools/check-editor.mjs が Chromium で確かめる。
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const {
   planFolds,
@@ -23,13 +25,15 @@ const {
   readEditorConfig,
   defaultEditorConfig,
   ReviewIndex,
+  readTextWidth,
+  resolveTextWidth,
+  headingPages,
 } = require('../dist/core.js');
 
 const ROOT = path.join(__dirname, 'fixtures', 'sample');
-const OPT = { tableGap: 2 };
 
 function items(text, t) {
-  return planFolds(text, OPT).items.filter((i) => i.t === t);
+  return planFolds(text).items.filter((i) => i.t === t);
 }
 
 test('parser: 箇条の行（Re:VIEW 2.5.0 の compile_block と同じ形）', () => {
@@ -84,7 +88,7 @@ test('畳む: 見出しの印（= と修飾子とラベル）の終わり', () =
 
 test('畳む: ブロック（頭、本文、終わり）とキャプション', () => {
   const text = ['//list[id1][キャプ@<code>{x}]{', 'puts @<b>{1}', '//}', '', '//emlist{', 'a', '//}'].join('\n');
-  const plan = planFolds(text, OPT);
+  const plan = planFolds(text);
   const dirs = plan.items.filter((i) => i.t === 'directive');
   assert.deepStrictEqual(
     dirs.map((d) => [d.name, d.look, d.id, d.caption, d.endLine]),
@@ -99,21 +103,21 @@ test('畳む: ブロック（頭、本文、終わり）とキャプション', 
   assert.deepStrictEqual(plan.items.filter((i) => i.t === 'inline').map((i) => [i.line, i.op]), [[0, 'code']]);
 });
 
-test('畳む: 表の行、区切りの行、列をそろえる幅（半角換算、インライン命令は中身だけ）', () => {
+test('畳む: 表の行、区切りの行、セルの範囲（\\t+ は 1 つの区切り）', () => {
   const text = ['//tsize[|latex||l|l|]', '//table[t][表]{', '名前\t説明', '------------', 'ab\t@<code>{x}', 'abcdef\t\tz', '//}'].join('\n');
-  const plan = planFolds(text, OPT);
+  const plan = planFolds(text);
   const ts = plan.items.find((i) => i.t === 'directive' && i.name === 'tsize');
   assert.strictEqual(ts.args[0], '|latex||l|l|');
   const rows = plan.items.filter((i) => i.t === 'tableRow');
-  assert.deepStrictEqual(rows.map((r) => [r.line, r.header, r.firstColumnHeader]), [
-    [2, true, false],
-    [4, false, false],
-    [5, false, false],
+  assert.deepStrictEqual(rows.map((r) => [r.line, r.header, r.firstColumnHeader, r.table]), [
+    [2, true, false, 1],
+    [4, false, false, 1],
+    [5, false, false, 1],
   ]);
-  // 1 列目の最も広いセルは「名前」（全角 2 字 = 4）と abcdef（6）の 6。差に間 2 を足す
-  assert.deepStrictEqual(rows.map((r) => r.seps.map((s) => s.pad)), [[6 - 4 + 2], [6 - 2 + 2], [6 - 6 + 2]]);
+  assert.deepStrictEqual(rows.map((r) => r.cells.map((c) => text.slice(c.from, c.to))), [['名前', '説明'], ['ab', '@<code>{x}'], ['abcdef', 'z']]);
   // タブが 2 つ並んでも 1 つの区切り（Re:VIEW の split(/\t+/)）
   assert.strictEqual(text.slice(rows[2].seps[0].from, rows[2].seps[0].to), '\t\t');
+  assert.deepStrictEqual(rows[2].seps.map((s) => s.col), [0]);
   assert.deepStrictEqual(plan.items.filter((i) => i.t === 'tableRule').map((r) => r.line), [3]);
 });
 
@@ -135,7 +139,7 @@ test('畳む: 図・脚注・引用・改ページ・コメント・箇条', () 
     ' * 箇条',
     ' 2. 二番',
   ].join('\n');
-  const plan = planFolds(text, OPT);
+  const plan = planFolds(text);
   assert.deepStrictEqual(
     plan.items.filter((i) => i.t === 'directive').map((d) => [d.name, d.look]),
     [
@@ -156,7 +160,7 @@ test('畳む: 図・脚注・引用・改ページ・コメント・箇条', () 
 
 test('畳む: 見せ方を決めていない記法は raw として残し、数えられる', () => {
   const text = ['//note[注]{', '中', '//}', '@<kw>{語}と@<code>{x}', '@<m>$x^2$'].join('\n');
-  const plan = planFolds(text, OPT);
+  const plan = planFolds(text);
   assert.deepStrictEqual([...countRaw(plan)].sort(), [
     ['//note', 1],
     ['@<kw>', 1],
@@ -166,14 +170,14 @@ test('畳む: 見せ方を決めていない記法は raw として残し、数�
 });
 
 test('畳む: CRLF でも通しの位置は行の切れ目を 1 文字と数える（CodeMirror と同じ）', () => {
-  const lf = planFolds('a\n@<code>{x}', OPT).items.find((i) => i.t === 'inline');
-  const crlf = planFolds('a\r\n@<code>{x}', OPT).items.find((i) => i.t === 'inline');
+  const lf = planFolds('a\n@<code>{x}').items.find((i) => i.t === 'inline');
+  const crlf = planFolds('a\r\n@<code>{x}').items.find((i) => i.t === 'inline');
   assert.strictEqual(crlf.from, lf.from);
   assert.strictEqual(crlf.from, 2);
 });
 
 test('畳む: 位置の並びは前から（装飾を作るときにそのまま使う）', () => {
-  const plan = planFolds(['== @<code>{a}', ' * @<b>{b}', '//list[x][y]{', 'z', '//}'].join('\n'), OPT);
+  const plan = planFolds(['== @<code>{a}', ' * @<b>{b}', '//list[x][y]{', 'z', '//}'].join('\n'));
   for (let i = 1; i < plan.items.length; i++) assert.ok(plan.items[i - 1].from <= plan.items[i].from);
 });
 
@@ -274,8 +278,50 @@ test('同期: webview の編集を文字列に当てる（複数の変更、CRLF
   assert.strictEqual(applyTextChanges(crlf, [{ from: { line: 0, col: 99 }, to: { line: 0, col: 99 }, insert: '!' }], '\r\n'), 'abc!\r\ndef');
 });
 
-test('設定 editor: 既定値と読み込み（型の違うものは既定のまま）', () => {
-  assert.deepStrictEqual(defaultEditorConfig(), { hidx: 'hide', headingScale: [2, 1.5, 1.17, 1, 0.83], tableGap: 2 });
-  assert.deepStrictEqual(readEditorConfig({ hidx: 'faint', headingScale: [1.5, 1.2], tableGap: 4 }), { hidx: 'faint', headingScale: [1.5, 1.2], tableGap: 4 });
-  assert.deepStrictEqual(readEditorConfig({ hidx: 'x', headingScale: ['a'], tableGap: -1 }), defaultEditorConfig());
+test('設定 editor: 既定値（book_mruby3 の PDF を測った値）と読み込み（型の違うものは既定のまま）', () => {
+  const d = defaultEditorConfig();
+  assert.deepStrictEqual(d.headingScale, [1.728, 1.44, 1.2, 1]);
+  assert.strictEqual(d.tableGap, 3);
+  assert.strictEqual(d.page.enable, true);
+  assert.strictEqual(d.page.textWidth, 'auto');
+  assert.strictEqual(d.page.lineHeight, 1.622);
+  const r = readEditorConfig({ hidx: 'faint', headingScale: [1.5, 1.2], tableGap: 4, page: { enable: false, textWidth: 40, lineHeight: 1.5, fonts: { body: ['X'] } } });
+  assert.strictEqual(r.hidx, 'faint');
+  assert.deepStrictEqual(r.headingScale, [1.5, 1.2]);
+  assert.strictEqual(r.tableGap, 4);
+  assert.strictEqual(r.page.enable, false);
+  assert.strictEqual(r.page.textWidth, 40);
+  assert.strictEqual(r.page.lineHeight, 1.5);
+  assert.deepStrictEqual(r.page.fonts.body, ['X']);
+  assert.deepStrictEqual(r.page.fonts.code, d.page.fonts.code);
+  assert.deepStrictEqual(readEditorConfig({ hidx: 'x', headingScale: ['a'], tableGap: -1, page: { textWidth: 'wide', lineHeight: -1, fonts: { body: [] } } }), d);
+});
+
+test('本文の幅: sty の \\setlength{\\textwidth}{Nzw} を読む（コメントは外す、最後のものが効く）', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ra-sty-'));
+  fs.mkdirSync(path.join(dir, 'sty'));
+  fs.writeFileSync(path.join(dir, 'sty', 'a.sty'), '%\\setlength{\\textwidth}{30zw}\n\\setlength{\\textwidth}{44zw} % 10pt\n');
+  fs.writeFileSync(path.join(dir, 'sty', 'b.sty'), '\\setlength{\\textwidth}{49zw}  % 9pt\n\\setlength{\\fullwidth}{\\textwidth}\n');
+  assert.deepStrictEqual(readTextWidth(dir), { zw: 49, from: 'sty/b.sty:1' });
+  const cfg = defaultEditorConfig();
+  assert.deepStrictEqual(resolveTextWidth(dir, cfg), { zw: 49, from: 'sty/b.sty:1' });
+  cfg.page.textWidth = 40;
+  assert.deepStrictEqual(resolveTextWidth(dir, cfg), { zw: 40, from: '設定' });
+  assert.deepStrictEqual(resolveTextWidth(path.join(dir, 'nosuch'), defaultEditorConfig()), { zw: 49, from: '既定' });
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('ページ番号: 索引にある見出しだけ（上の段に落としたページは出さない）、章の題は章のページ', () => {
+  const idx = index();
+  const pages = JSON.parse(fs.readFileSync(path.join(ROOT, 'pages.json'), 'utf8'));
+  const parsed = idx.files.get('contents/first.re');
+  const got = headingPages(idx, pages, 'contents/first.re', parsed);
+  const byTitle = Object.fromEntries(got.map((g) => [parsed.headings.find((h) => h.span.start.line === g.line).plainTitle, g.page]));
+  assert.strictEqual(byTitle['最初の章'], 3);
+  assert.strictEqual(byTitle['導入'], 3);
+  assert.strictEqual(byTitle['細かい話'], 4);
+  for (const h of parsed.headings) {
+    const key = h.level === 1 ? 'first' : `first|${h.indexId}`;
+    if (!(key in pages)) assert.strictEqual(byTitle[h.plainTitle], undefined, h.plainTitle);
+  }
 });

@@ -18,7 +18,8 @@ src/core/        VS Code に依存しない層。判断はすべてここにあ�
   marks.ts       マーカー（0.2.0）。保存形式、位置の探し直し、AI への依頼の組み立て、結果の読み込み、ビューの並び
   fold.ts        編集画面（0.3.0）で畳む範囲の一覧（parser.ts を使う）。webview の束にも入る
   editing.ts     編集画面の入力の助け（インライン命令で囲む、ブロックの雛形、候補の型）。webview の束にも入る
-  editor-config.ts 設定 `editor`。webview の束にも入る
+  editor-config.ts 設定 `editor`（紙面に近い見た目の `page` を含む）。webview の束にも入る
+  booklayout.ts  本の組版の設定（`sty/*.sty` の本文の幅）を読む
   editor-protocol.ts 拡張と webview の間のやりとりの型
   editor-data.ts 拡張から編集画面に送るもの（参照の札、候補、図のパス、マーカーの位置、編集の当て方）
   diagnostics.ts 診断
@@ -29,7 +30,8 @@ src/editor-ui.ts 編集画面の VS Code 側（CustomTextEditorProvider、TextDo
 src/webview/     編集画面の webview（CodeMirror 6。dist/webview.js になる）。editor.ts と style.ts
 src/cli.ts       VS Code 無しで全体を診断する CLI（`marks` でマーカーの一覧と依頼の書き出し）
 tools/           測る・確かめるためのスクリプト（.vsix には入らない）。measure-anchoring.js、
-                 check-editor.mjs と check-editor-sync.mjs（編集画面を Chromium で開く）、editor-harness.html
+                 check-editor.mjs と check-editor-sync.mjs（編集画面を Chromium で開く）、editor-harness.html、
+                 measure-page.mjs（本の PDF を測る）、compare-page.mjs（PDF と編集画面の改行を比べる）
 
 syntaxes/review.tmLanguage.json  構文の色付け（TextMate 文法、scopeName source.review）
 language-configuration.json      行コメントと括弧の対
@@ -254,6 +256,25 @@ webview は文字が変わるたびに `planFolds` を回し直す（`vm.re` で
 `activeTextEditor` が無いので、`marks-ui.ts` は `EditorBridge`（`editor-ui.ts` が実装）から文書と選択を
 もらう。ホバーのボタンは `command` で既存のコマンド（`reviewAssist.toggleMarkDone` など）を呼ぶ。
 右クリックのメニューは `webview/context`（`webviewId == 'reviewAssist.editor'`）。
+
+### 紙面に近い見た目（段階 3）
+
+設定 `editor.page`。経緯は `../worklog/2026-10-17-v0.3.0-page.md`、測った値と出どころは `thresholds.md` の「編集画面」。
+
+* **1zw = エディタの文字の大きさ。** 紙面の pt は使わず、本文の和文の大きさ（1zw）に対する比で全部を決める。
+  本文の幅は `width: Nem`（N は本の `sty/*.sty` の `\textwidth` の zw。`booklayout.ts` が読み、拡張が `init` で送る）。
+  CodeMirror の行の左右の余白は 0 にし、行の幅 = 本文の幅にする
+* 行の送り、見出し・コード・表・キャプションの大きさと行の送り、書体の並びは、拡張が送る設定から CSS を作る（`themeFor`）。
+  欧文だけ大きくする（`latinScale`）のは `@font-face` の `size-adjust` と `unicode-range`
+* **表の列は実際の書体で測ってそろえる。** 段階 2 は半角換算（全角 2）と等幅の書体でそろえていたが、紙面の表は明朝なので、
+  セルの見える文字列（畳んだインライン命令は畳んだときの書体と文字、参照の札は札の枠の幅も）を canvas の `measureText` で測り、
+  タブを「列のいちばん広いセル − このセル + 列の間」の px に広げる。書体は隠した見本の行の `getComputedStyle` から取り、
+  書体が読み込まれたら（`document.fonts.ready`）測り直す。`fold.ts` はセルの範囲だけを渡す
+* **見出しの横に PDF のページ。** 拡張が `headingPages`（`editor-data.ts`、`pdfpages.ts` の `lookupPage`）で、索引にその見出しの鍵が
+  そのままある見出しだけページを送る（上の段に落としたページは、その見出しのページではないので出さない）。原稿が未保存か、
+  原稿のファイルが PDF より新しいときは薄く出す（`pagesStale`）
+* 紙面からはみ出しそうな所（表の幅、コードの行長）は、既存の診断（`tableWidth`、`maxCodeLineLength`）がそのまま波線で出る
+* `editor.page.enable: false` で段階 2 の見た目（UI の書体、幅の制限なし）に戻る
 
 ### VS Code 無しで確かめる
 

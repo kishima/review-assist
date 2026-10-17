@@ -18,6 +18,14 @@
   （17,307 か所）を確かめた（`docs/verification/editor.md`、`tools/check-editor.mjs`）。`contents/vm.re` で 1 文字打つごとの処理は
   中央値 4.4 ms
 - 実機の VS Code ではまだ見ていない（特に日本語 IME）。確かめてほしい操作は README の「確かめ方（0.3.0）」
+- **紙面に近い見た目**（計画書の段階 3）: 本文の和文 1 字をエディタの文字の大きさに当て、本文の幅（本の `sty` の `\textwidth`、
+  `book_mruby3` は 49 字）、段落の頭の字下げ、行の送り、見出し・コード・表・キャプションの大きさ、表の列の間を、`book_mruby3` の PDF を
+  測った比で出す（設定 `editor.page`、出どころは `docs/design/thresholds.md`）。書体は PDF と同じもの（Noto Serif CJK JP、LM Roman、
+  Noto Sans CJK JP、Nimbus Sans L、Bera Sans Mono）が PC にあればそれ、無ければ近いもの。表は実際の書体で測って列をそろえる
+- 見出しの横に PDF のページ（設定 `pageIndex`）。原稿が未保存か PDF より新しいと薄く出る
+- 見出しの大きさの既定を HTML の既定から PDF を測った値に、表の列の間の既定を 2 から 3（測った値）に変えた
+- `tools/measure-page.mjs`（本の PDF を測る）と `tools/compare-page.mjs`（PDF と編集画面の改行の位置を比べる）。`book_mruby3` で、
+  原稿で 1 行の段落の折り返しの位置が PDF と同じなのは 33%、±1 文字で 58%（`docs/verification/page.md`）
 - 実行時依存を持たない方針の例外として、CodeMirror 6 を webview の束（`dist/webview.js`）にだけ入れた。`.vsix` は 82 KB → 208 KB
 
 ## 0.2.0

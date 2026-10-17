@@ -4,9 +4,8 @@
 //
 // 位置は「行の頭からの桁」と、行の切れ目を 1 文字と数えた通しの位置（CodeMirror の数え方）の両方で持つ。
 // CRLF の原稿でも通しの位置が CodeMirror と合うように、`\r\n` も 1 文字と数える。
-import { parseReview, stripInline } from './parser.js';
+import { parseReview } from './parser.js';
 import type { Block, LineKind, ListItem, ParsedFile } from './types.js';
-import { displayWidth } from './width.js';
 
 /** 畳んで見せ方を決めてあるインライン命令（計画書 段階 2 の並び）。これ以外は記法のまま見せる。 */
 export const FOLDED_INLINE_OPS = ['code', 'b', 'hidx', 'chap', 'hd', 'table', 'list', 'img', 'fn', 'embed', 'br', 'href'] as const;
@@ -111,8 +110,12 @@ export interface TableRowFold {
   header: boolean;
   /** 区切りの行が無い表（1 列目が見出し）。 */
   firstColumnHeader: boolean;
-  /** タブの並び 1 つずつと、その前のセルを揃えるのに足す幅（半角の個数）。 */
-  seps: { from: number; to: number; pad: number }[];
+  /** その表の頭（`//table`）の行。同じ表の行をまとめて列の幅を決めるため。 */
+  table: number;
+  /** セルの範囲（タブを除く）。列をそろえる幅は webview が実際の書体で測って決める。 */
+  cells: { from: number; to: number }[];
+  /** タブの並び 1 つずつと、その前のセルの列の番号。 */
+  seps: { from: number; to: number; col: number }[];
 }
 
 export interface TableRuleFold {
@@ -152,11 +155,6 @@ export interface FoldPlan {
   parsed: ParsedFile;
 }
 
-export interface FoldOptions {
-  /** 表の列の間に足す幅（半角の個数）。設定 `editor.tableGap`。 */
-  tableGap: number;
-}
-
 /** 本文の中で `@<op>{` から始まる逃がしの `\` の位置（`\}` `\{` `\\` の `\`）。parser.ts の逃がしと同じ規則。 */
 function escapesIn(line: string, from: number, to: number): number[] {
   const out: number[] = [];
@@ -169,26 +167,12 @@ function escapesIn(line: string, from: number, to: number): number[] {
   return out;
 }
 
-function tableRows(parsed: ParsedFile, block: Block, starts: number[], gap: number, items: FoldItem[]): void {
+function tableRows(parsed: ParsedFile, block: Block, starts: number[], items: FoldItem[]): void {
   const lines = parsed.lines;
   const first = block.bodyStartLine;
   const n = block.body.length;
+  // 区切りの行と、セルの切り方は Re:VIEW 2.5.0 `Builder#table`（`/\A[\=\-]{12}/`、`line.strip.split(/\t+/)`）
   const sepIndex = block.body.findIndex((l) => /^[=-]{12}/.test(l));
-  // 列ごとの最も広いセルの幅。セルは `\t+` で切り、頭の `.` を落とし、インライン命令は中身だけ
-  // （Re:VIEW 2.5.0 `Builder#table` の `line.strip.split(/\t+/)` と `sub(/\A\./, '')`）。
-  const cellWidths: number[][] = [];
-  const widths: number[] = [];
-  for (let k = 0; k < n; k++) {
-    const row = block.body[k];
-    if (k === sepIndex || row.startsWith('#@')) {
-      cellWidths.push([]);
-      continue;
-    }
-    const cells = row.split(/\t+/);
-    const ws = cells.map((c) => displayWidth(stripInline(c)));
-    cellWidths.push(ws);
-    ws.forEach((w, i) => (widths[i] = Math.max(widths[i] ?? 0, w)));
-  }
   for (let k = 0; k < n; k++) {
     const ln = first + k;
     const line = lines[ln];
@@ -200,14 +184,18 @@ function tableRows(parsed: ParsedFile, block: Block, starts: number[], gap: numb
       continue;
     }
     const seps: TableRowFold['seps'] = [];
+    const cells: TableRowFold['cells'] = [];
     const re = /\t+/g;
     let m: RegExpExecArray | null;
     let col = 0;
+    let cellStart = 0;
     while ((m = re.exec(line)) !== null) {
-      const pad = (widths[col] ?? 0) - (cellWidths[k][col] ?? 0) + gap;
-      seps.push({ from: from + m.index, to: from + m.index + m[0].length, pad });
+      cells.push({ from: from + cellStart, to: from + m.index });
+      seps.push({ from: from + m.index, to: from + m.index + m[0].length, col });
+      cellStart = m.index + m[0].length;
       col++;
     }
+    cells.push({ from: from + cellStart, to });
     items.push({
       t: 'tableRow',
       line: ln,
@@ -215,6 +203,8 @@ function tableRows(parsed: ParsedFile, block: Block, starts: number[], gap: numb
       to,
       header: sepIndex >= 0 && k < sepIndex,
       firstColumnHeader: sepIndex < 0,
+      table: block.span.start.line,
+      cells,
       seps,
     });
   }
@@ -239,7 +229,7 @@ function lookOf(name: string): DirectiveFold['look'] | undefined {
  * 原稿全体を読んで、畳む範囲の一覧を作る。`text` は CodeMirror の `doc.toString()`（行の切れ目は
  * `\n` か `\r\n`）。
  */
-export function planFolds(text: string, options: FoldOptions, file = '', chapter = ''): FoldPlan {
+export function planFolds(text: string, file = '', chapter = ''): FoldPlan {
   const parsed = parseReview(file, text, chapter);
   const lines = parsed.lines;
   const starts: number[] = new Array(lines.length);
@@ -283,7 +273,7 @@ export function planFolds(text: string, options: FoldOptions, file = '', chapter
     if (b.caption !== undefined) d.caption = b.caption;
     items.push(d);
     if (b.bodyStartLine >= 0) {
-      if (look === 'table') tableRows(parsed, b, starts, options.tableGap, items);
+      if (look === 'table') tableRows(parsed, b, starts, items);
       else if (look === 'code' || look === 'quote') {
         for (let k = 0; k < b.body.length; k++) {
           const bl = b.bodyStartLine + k;

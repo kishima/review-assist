@@ -50,10 +50,12 @@ function dataFor(rel, text) {
     const abs = index.abs(p);
     if (fs.existsSync(abs)) images[id] = pathToFileURL(abs).toString();
   }
+  const pageLoad = core.loadPageIndex(index);
   return {
     refs: core.refLabels(index, parsed),
     images,
     completions: core.completionCandidates(index, rel),
+    ...(pageLoad.pages ? { pages: core.headingPages(index, pageLoad.pages, rel, parsed), pagesStale: false } : {}),
   };
 }
 
@@ -77,10 +79,10 @@ for (const rel of targets) {
   const errBefore = errors.length;
   const t0 = Date.now();
   const r = await page.evaluate(
-    async ({ text, data, config }) => {
+    async ({ text, data, config, textWidth }) => {
       const raf = () => new Promise((res) => requestAnimationFrame(() => res()));
       window.__reviewAssistHost = [];
-      window.postMessage({ type: 'init', text, eol: '\n', config, seq: 0, ...data }, '*');
+      window.postMessage({ type: 'init', text, eol: '\n', config, textWidth, seq: 0, ...data }, '*');
       await new Promise((res) => setTimeout(res, 0));
       await raf();
       const ra = window.__reviewAssist;
@@ -162,10 +164,10 @@ for (const rel of targets) {
       const edits = window.__reviewAssistHost.filter((m) => m.type === 'edit').length;
       return { sameAfterOpen, sameAfterWalk, edits, items: plan.items.length, checked: checks.length, failures: failures.slice(0, 20), failureCount: failures.length };
     },
-    { text, data, config: index.config.editor }
+    { text, data, config: index.config.editor, textWidth: core.resolveTextWidth(root, index.config.editor) }
   );
   // 数えるのは索引に入る原稿だけ（生成物の contents/opcodes.re は元ファイルと同じ中身なので二重になる）。
-  const plan = core.planFolds(text, { tableGap: index.config.editor.tableGap });
+  const plan = core.planFolds(text);
   if (index.files.has(rel) && !isGenerated(rel)) for (const [k, n] of core.countFolded(plan)) totals.folded[k] = (totals.folded[k] ?? 0) + n;
   if (index.files.has(rel) && !isGenerated(rel)) for (const [k, n] of core.countRaw(plan)) totals.raw[k] = (totals.raw[k] ?? 0) + n;
   const fileErrors = errors.slice(errBefore);
@@ -189,10 +191,10 @@ if (latencyFile) {
   const text = fs.readFileSync(path.join(root, latencyFile), 'utf8');
   const data = dataFor(latencyFile, text);
   latency = await page.evaluate(
-    async ({ text, data, config }) => {
+    async ({ text, data, config, textWidth }) => {
       const raf = () => new Promise((res) => requestAnimationFrame(() => res()));
       window.__reviewAssistHost = [];
-      window.postMessage({ type: 'init', text, eol: '\n', config, seq: 0, ...data }, '*');
+      window.postMessage({ type: 'init', text, eol: '\n', config, textWidth, seq: 0, ...data }, '*');
       await new Promise((res) => setTimeout(res, 0));
       await raf();
       const view = window.__reviewAssist.view;
@@ -207,7 +209,7 @@ if (latencyFile) {
       window.__latency = { line, samples: [] };
       return { line };
     },
-    { text, data, config: index.config.editor }
+    { text, data, config: index.config.editor, textWidth: core.resolveTextWidth(root, index.config.editor) }
   );
   // 本物のキー入力（keydown → beforeinput → CodeMirror の更新）。1 文字ごとに、keydown の時刻（event.timeStamp）から
   //   update: CodeMirror が文書と DOM を更新し終えた時（updateListener。畳む一覧と装飾の作り直しを含む）

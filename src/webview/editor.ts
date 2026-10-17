@@ -11,11 +11,11 @@ import { Decoration, EditorView, WidgetType, hoverTooltip, keymap, type Decorati
 import { defaultKeymap } from '@codemirror/commands';
 import { search, searchKeymap } from '@codemirror/search';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
-import type { EditorConfig } from '../core/editor-config.js';
+import { defaultEditorConfig, type EditorConfig } from '../core/editor-config.js';
 import { refKey, wrapInline, type CompletionCandidate } from '../core/editing.js';
-import type { DiagView, EditorData, HostMessage, LineCol, MarkView, RefLabel, TextChange, ViewMessage } from '../core/editor-protocol.js';
-import { planFolds, type FoldPlan, type InlineFold } from '../core/fold.js';
-import { stripInline } from '../core/parser.js';
+import type { DiagView, EditorData, HostMessage, LineCol, MarkView, RefLabel, TextChange, TextWidthInfo, ViewMessage } from '../core/editor-protocol.js';
+import { planFolds, type FoldPlan, type InlineFold, type TableRowFold } from '../core/fold.js';
+import { parseInlineOps, stripInline } from '../core/parser.js';
 import { css } from './style.js';
 
 // ---------------------------------------------------------------------------
@@ -55,11 +55,13 @@ interface Shared {
   refs: Record<string, RefLabel>;
   images: Record<string, string>;
   completions: CompletionCandidate[];
+  /** PDF が原稿より古い（ページ番号を薄く）。 */
+  pagesStale: boolean;
 }
 
 const setShared = StateEffect.define<Partial<Shared>>();
 const sharedField = StateField.define<Shared>({
-  create: () => ({ config: { hidx: 'hide', headingScale: [1], tableGap: 0 }, refs: {}, images: {}, completions: [] }),
+  create: () => ({ config: defaultEditorConfig(), refs: {}, images: {}, completions: [], pagesStale: false }),
   update(value, tr) {
     for (const e of tr.effects) if (e.is(setShared)) value = { ...value, ...e.value };
     return value;
@@ -68,11 +70,10 @@ const sharedField = StateField.define<Shared>({
 
 /** 畳む一覧。文字列が変わったときだけ作り直す。 */
 const planField = StateField.define<FoldPlan>({
-  create: (state) => planFolds(state.doc.toString(), { tableGap: state.field(sharedField, false)?.config.tableGap ?? 0 }),
+  create: (state) => planFolds(state.doc.toString()),
   update(plan, tr) {
-    const gapChanged = tr.effects.some((e) => e.is(setShared) && e.value.config !== undefined);
-    if (!tr.docChanged && !gapChanged) return plan;
-    return planFolds(tr.state.doc.toString(), { tableGap: tr.state.field(sharedField).config.tableGap });
+    if (!tr.docChanged) return plan;
+    return planFolds(tr.state.doc.toString());
   },
 });
 
@@ -97,7 +98,10 @@ function rangedField<T>(effect: StateEffectType<Ranged<T>[]>) {
     },
   });
 }
+const setPages = StateEffect.define<Ranged<number>[]>();
 const marksField = rangedField<MarkView>(setMarks);
+/** 見出しの行の頭の位置と、その PDF のページ（段階 3）。 */
+const pagesField = rangedField<number>(setPages);
 const diagsField = rangedField<DiagView>(setDiags);
 
 // ---------------------------------------------------------------------------
@@ -139,7 +143,7 @@ class PadWidget extends WidgetType {
   override toDOM(): HTMLElement {
     const el = document.createElement('span');
     el.className = 'cm-ra-tab';
-    el.style.width = `${this.width}ch`;
+    el.style.width = `${this.width}px`;
     return el;
   }
 }
@@ -209,6 +213,25 @@ class RuleWidget extends WidgetType {
     const el = document.createElement('span');
     el.className = 'cm-ra-rule';
     if (this.label) el.textContent = this.label;
+    return el;
+  }
+}
+
+class PageWidget extends WidgetType {
+  constructor(
+    readonly page: number,
+    readonly stale: boolean
+  ) {
+    super();
+  }
+  override eq(other: PageWidget): boolean {
+    return other.page === this.page && other.stale === this.stale;
+  }
+  override toDOM(): HTMLElement {
+    const el = document.createElement('span');
+    el.className = `cm-ra-pageno${this.stale ? ' cm-ra-pageno-stale' : ''}`;
+    el.textContent = `p.${this.page}`;
+    el.title = this.stale ? 'PDF のページ（PDF が原稿より古い）' : 'PDF のページ';
     return el;
   }
 }
@@ -305,6 +328,7 @@ function inlineDecos(it: InlineFold, shared: Shared, out: Range<Decoration>[]): 
 }
 
 function buildFolds(state: EditorState): DecorationSet {
+  colWidthCache = new Map();
   const plan = state.field(planField);
   const shared = state.field(sharedField);
   const out: Range<Decoration>[] = [];
@@ -312,6 +336,8 @@ function buildFolds(state: EditorState): DecorationSet {
   const coveredLines = new Set<number>();
   const doc = state.doc;
   const lineFrom = (ln: number) => doc.line(ln + 1).from;
+  const pageAt = new Map<number, number>();
+  for (const p of state.field(pagesField)) pageAt.set(doc.lineAt(p.from).from, p.item);
 
   for (const it of plan.items) {
     if (it.t !== 'directive') continue;
@@ -350,6 +376,16 @@ function buildFolds(state: EditorState): DecorationSet {
     }
   }
 
+  // 段落の頭の行（紙面では字下げする）: 地の文の行で、前の行が空か地の文でない（見出し・箇条・ブロックなど）
+  if (shared.config.page.enable) {
+    const notPlain = new Set<number>();
+    for (const it of plan.items) if (it.t === 'heading' || it.t === 'list') notPlain.add(it.line);
+    const plain = (ln: number) => ln >= 0 && plan.lineKinds[ln] === 'prose' && !notPlain.has(ln) && plan.parsed.lines[ln].length > 0;
+    for (let ln = 0; ln < plan.parsed.lines.length; ln++) {
+      if (plain(ln) && !plain(ln - 1)) out.push(Decoration.line({ class: 'cm-ra-p' }).range(lineFrom(ln)));
+    }
+  }
+
   for (const it of plan.items) {
     switch (it.t) {
       case 'directive':
@@ -362,6 +398,8 @@ function buildFolds(state: EditorState): DecorationSet {
       case 'heading': {
         const lf = lineFrom(it.line);
         out.push(Decoration.line({ class: `cm-ra-h cm-ra-h${Math.min(it.level, 6)}` }).range(lf));
+        const pg = pageAt.get(lf);
+        if (pg !== undefined) out.push(Decoration.widget({ widget: new PageWidget(pg, shared.pagesStale), side: 1 }).range(doc.line(it.line + 1).to));
         if (lineTouched(state, it.line) || it.markTo <= it.from) break;
         const chips = [it.modifier ? `[${it.modifier}]` : '', it.label ? `{${it.label}}` : ''].filter(Boolean).join(' ');
         out.push((chips ? Decoration.replace({ widget: new ChipWidget(chips, 'cm-ra-chip-label') }) : hide).range(it.from, it.markTo));
@@ -387,9 +425,14 @@ function buildFolds(state: EditorState): DecorationSet {
         if (!lineTouched(state, it.line) && it.to > it.from) out.push(hide.range(it.from, it.to));
         break;
       case 'tableRow': {
-        out.push(Decoration.line({ class: `cm-ra-tr${it.header ? ' cm-ra-th' : ''}${it.firstColumnHeader ? ' cm-ra-th1' : ''}` }).range(lineFrom(it.line)));
+        out.push(Decoration.line({ class: 'cm-ra-tr' }).range(lineFrom(it.line)));
+        // 見出しのセル（区切りの行より上、区切りが無ければ 1 列目。Re:VIEW 2.5.0 Builder#table）
+        it.cells.forEach((c, i) => {
+          if ((it.header || (it.firstColumnHeader && i === 0)) && c.to > c.from) out.push(Decoration.mark({ class: 'cm-ra-th' }).range(c.from, c.to));
+        });
         // タブは記法というより区切りなので、カーソルがあっても揃えたままにする（セルを打つ間に列が動かない）。
-        for (const s of it.seps) out.push(Decoration.replace({ widget: new PadWidget(s.pad) }).range(s.from, s.to));
+        const pads = tablePads(state, plan, it, shared);
+        it.seps.forEach((s, i) => out.push(Decoration.replace({ widget: new PadWidget(pads[i]) }).range(s.from, s.to)));
         break;
       }
       case 'tableRule':
@@ -404,7 +447,7 @@ function buildFolds(state: EditorState): DecorationSet {
 const foldField = StateField.define<DecorationSet>({
   create: (state) => buildFolds(state),
   update(value, tr) {
-    if (!tr.docChanged && !tr.selection && !tr.effects.some((e) => e.is(setShared))) return value;
+    if (!tr.docChanged && !tr.selection && !tr.effects.some((e) => e.is(setShared) || e.is(setPages))) return value;
     return buildFolds(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),
@@ -571,9 +614,11 @@ function applyData(data: EditorData, hostSeq: number): void {
   if (data.refs) shared.refs = data.refs;
   if (data.images) shared.images = data.images;
   if (data.completions) shared.completions = data.completions;
+  if (data.pagesStale !== undefined) shared.pagesStale = data.pagesStale;
   if (Object.keys(shared).length > 0) effects.push(setShared.of(shared));
   const map = mapper(hostSeq);
   if (data.marks) effects.push(setMarks.of(data.marks.map((m) => ({ from: map(m.from, 1), to: map(m.to, -1), item: m }))));
+  if (data.pages) effects.push(setPages.of(data.pages.map((p) => ({ from: map({ line: p.line, col: 0 }, -1), to: map({ line: p.line, col: 0 }, -1), item: p.page }))));
   if (data.diagnostics) effects.push(setDiags.of(data.diagnostics.map((d) => ({ from: map(d.from, 1), to: map(d.to, -1), item: d }))));
   if (effects.length > 0) view.dispatch({ effects });
 }
@@ -628,13 +673,157 @@ function onAck(hostSeq: number): void {
   }
 }
 
-function themeFor(config: EditorConfig): Extension {
+const GENERIC_FAMILIES = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
+
+/** CSS の font-family。総称（serif など）は最後に回す（その前の名前で字が無いときに次へ進めるように）。 */
+function family(names: string[]): string {
+  const named = names.filter((n) => !GENERIC_FAMILIES.has(n));
+  const generic = names.filter((n) => GENERIC_FAMILIES.has(n));
+  return [...named.map((n) => `"${n.replace(/"/g, '')}"`), ...generic].join(', ');
+}
+
+/** 欧文の大きさを紙面の比（latinScale）に合わせるための @font-face（size-adjust）。PC に無ければ使われない。 */
+function fontFaces(config: EditorConfig): string {
+  const p = config.page;
+  // 欧文と記号の範囲だけ（和文は本文の書体のまま）
+  const range = 'U+0000-024F, U+2000-206F, U+20A0-20CF, U+2100-214F';
+  const face = (name: string, locals: string[], weight: string) =>
+    `@font-face { font-family: "${name}"; src: ${locals.map((l) => `local("${l.replace(/"/g, '')}")`).join(', ')}; ` +
+    `font-weight: ${weight}; size-adjust: ${(p.latinScale * 100).toFixed(1)}%; unicode-range: ${range}; }`;
+  return [face('ra-body-latin', p.fonts.bodyLatin, 'normal'), face('ra-heading-latin', p.fonts.headingLatin, 'bold')].join('\n');
+}
+
+function themeFor(config: EditorConfig, textWidth: TextWidthInfo): Extension {
   const rules: Record<string, Record<string, string>> = {};
   for (let i = 1; i <= 6; i++) {
     const s = config.headingScale[Math.min(i, config.headingScale.length) - 1];
     rules[`.cm-ra-h${i}`] = { fontSize: `${s}em` };
   }
+  const p = config.page;
+  if (p.enable) {
+    // 紙面に近い見た目（段階 3）。1zw = エディタの文字の大きさ。比は設定 editor.page（本の PDF を測った値）
+    const body = family(['ra-body-latin', ...p.fonts.body]);
+    const heading = family(['ra-heading-latin', ...p.fonts.heading]);
+    const code = family([...p.fonts.code, ...p.fonts.codeCjk]);
+    rules['.cm-content'] = { width: `${textWidth.zw}em`, maxWidth: '100%', flexGrow: '0', margin: '0 auto', fontFamily: body, lineHeight: String(p.lineHeight) };
+    // CodeMirror の行の左右の余白を外す（本文の幅 = 行の幅にする）
+    rules['.cm-line'] = { padding: '0' };
+    rules['.cm-ra-h'] = { fontFamily: heading };
+    rules['.cm-ra-p'] = { textIndent: `${p.paragraphIndent}em` };
+    rules['.cm-ra-head, .cm-ra-pageno'] = { fontFamily: family(p.fonts.heading), fontSize: `${p.captionScale}em` };
+    rules['.cm-ra-code'] = { fontFamily: code, fontSize: `${p.inlineCodeScale}em`, backgroundColor: 'transparent' };
+    rules['.cm-ra-body-code'] = { fontFamily: code, fontSize: `${p.codeScale}em`, lineHeight: String(p.codeLineHeight) };
+    rules['.cm-ra-tr'] = { fontFamily: body, fontSize: `${p.tableScale}em`, lineHeight: String(p.tableLineHeight) };
+    rules['.cm-ra-th'] = { fontFamily: family(p.fonts.heading) };
+  }
   return EditorView.theme(rules);
+}
+
+// ---------------------------------------------------------------------------
+// 表の列をそろえる幅。セルの見える文字列を、その行の書体で canvas に測る（書体が変わってもそろう）。
+
+interface CellFonts {
+  /** canvas の font（`bold 12px "…", serif` の形）。地の文のセル、見出しのセル、セルの中の @<code>、札。 */
+  td: string;
+  th: string;
+  code: string;
+  chip: string;
+  /** 札の枠と内側の余白の幅（px）。札の文字の幅に足す。 */
+  chipExtra: number;
+  /** 表の文字の大きさ（px）。列の間（tableGap）の半角 = この半分。 */
+  px: number;
+}
+let cellFonts: CellFonts | undefined;
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+const measureCache = new Map<string, number>();
+
+function measure(text: string, font: string): number {
+  const key = `${font}\u0000${text}`;
+  let w = measureCache.get(key);
+  if (w === undefined) {
+    measureCtx ??= document.createElement('canvas').getContext('2d');
+    if (!measureCtx) return 0;
+    measureCtx.font = font;
+    w = measureCtx.measureText(text).width;
+    measureCache.set(key, w);
+  }
+  return w;
+}
+
+/** 表の行の書体を、隠した見本の行から取る（CodeMirror のテーマの CSS が効いた後の値）。 */
+function readCellFonts(): void {
+  if (!view) return;
+  const probe = document.createElement('div');
+  probe.className = 'cm-content';
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  probe.innerHTML =
+    '<div class="cm-line cm-ra-tr"><span>あ</span><span class="cm-ra-th">あ</span><span class="cm-ra-code">a</span>' +
+    '<span class="cm-ra-chip cm-ra-chip-ref">あ</span></div>';
+  view.dom.appendChild(probe);
+  const fontOf = (el: Element) => {
+    const cs = getComputedStyle(el);
+    return `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  };
+  const spans = probe.querySelectorAll('span');
+  const chip = fontOf(spans[3]);
+  cellFonts = {
+    td: fontOf(spans[0]),
+    th: fontOf(spans[1]),
+    code: fontOf(spans[2]),
+    chip,
+    chipExtra: 0,
+    px: parseFloat(getComputedStyle(spans[0]).fontSize),
+  };
+  measureCache.clear();
+  cellFonts.chipExtra = spans[3].getBoundingClientRect().width - measure('あ', chip);
+  probe.remove();
+}
+
+/** セルの見える幅（px）。畳んだインライン命令は畳んだときの書体と文字で測る。 */
+function cellWidth(raw: string, th: boolean, shared: Shared, fonts: CellFonts): number {
+  const plain = th ? fonts.th : fonts.td;
+  let w = 0;
+  let i = 0;
+  for (const op of parseInlineOps(raw)) {
+    w += measure(raw.slice(i, op.start), plain);
+    if (op.op === 'hidx') w += shared.config.hidx === 'faint' ? measure(raw.slice(op.start, op.end), plain) : 0;
+    else if (op.op === 'br') w += measure('↵', fonts.chip) + fonts.chipExtra;
+    else if (op.op === 'embed') w += measure('embed', fonts.chip) + fonts.chipExtra;
+    else if (op.op === 'href') {
+      const c = op.arg.indexOf(',');
+      w += measure(c >= 0 ? op.arg.slice(c + 1) : op.arg, plain);
+    } else if (op.op === 'code') w += measure(op.arg, fonts.code);
+    else if (OP_LABEL[op.op]) w += measure(`${OP_LABEL[op.op]} ${shared.refs[refKey(op.op, op.arg)]?.text ?? op.arg}`, fonts.chip) + fonts.chipExtra;
+    else w += measure(op.arg, plain);
+    i = op.end;
+  }
+  return w + measure(raw.slice(i), plain);
+}
+
+/** 1 回の装飾の作り直しの間だけ使う、表ごとの列の幅。 */
+let colWidthCache = new Map<number, number[]>();
+
+function tablePads(state: EditorState, plan: FoldPlan, row: TableRowFold, shared: Shared): number[] {
+  const fonts = cellFonts;
+  if (!fonts) return row.seps.map(() => 0);
+  const doc = state.doc;
+  const width = (r: TableRowFold, i: number) => {
+    const c = r.cells[i];
+    return cellWidth(doc.sliceString(c.from, c.to), r.header || (r.firstColumnHeader && i === 0), shared, fonts);
+  };
+  let cols = colWidthCache.get(row.table);
+  if (!cols) {
+    cols = [];
+    for (const it of plan.items) {
+      if (it.t !== 'tableRow' || it.table !== row.table) continue;
+      for (let i = 0; i < it.cells.length; i++) cols[i] = Math.max(cols[i] ?? 0, width(it, i));
+    }
+    colWidthCache.set(row.table, cols);
+  }
+  const gap = shared.config.tableGap * (fonts.px / 2);
+  return row.seps.map((s) => (cols![s.col] ?? 0) - width(row, s.col) + gap);
 }
 
 function create(msg: Extract<HostMessage, { type: 'init' }>): void {
@@ -646,8 +835,9 @@ function create(msg: Extract<HostMessage, { type: 'init' }>): void {
     doc: msg.text,
     extensions: [
       EditorState.lineSeparator.of(msg.eol),
-      sharedField.init(() => ({ config: msg.config, refs: msg.refs ?? {}, images: msg.images ?? {}, completions: msg.completions ?? [] })),
+      sharedField.init(() => ({ config: msg.config, refs: msg.refs ?? {}, images: msg.images ?? {}, completions: msg.completions ?? [], pagesStale: msg.pagesStale ?? false })),
       planField,
+      pagesField,
       foldField,
       marksField,
       diagsField,
@@ -659,11 +849,25 @@ function create(msg: Extract<HostMessage, { type: 'init' }>): void {
       markHover,
       sendEdits,
       EditorView.baseTheme(css),
-      themeFor(msg.config),
+      themeFor(msg.config, msg.textWidth),
     ],
   });
+  let faces = document.getElementById('ra-font-faces');
+  if (!faces) {
+    faces = document.createElement('style');
+    faces.id = 'ra-font-faces';
+    document.head.appendChild(faces);
+  }
+  faces.textContent = msg.config.page.enable ? fontFaces(msg.config) : '';
   view = new EditorView({ state, parent });
+  readCellFonts();
+  view.dispatch({ effects: setShared.of({}) });
   applyData(msg, msg.seq);
+  // 書体が読み込まれると字の幅が変わるので、表の列を測り直す
+  void document.fonts.ready.then(() => {
+    readCellFonts();
+    view?.dispatch({ effects: setShared.of({}) });
+  });
   // タブを裏に回すと webview は捨てられる（retainContextWhenHidden を使っていない）。戻ったときに
   // スクロールとカーソルを戻す。
   const saved = api.getState() as { top?: number; anchor?: number; head?: number } | undefined;
@@ -751,7 +955,6 @@ window.addEventListener('message', (e: MessageEvent) => {
   pending: () => pending.length,
 };
 (window as unknown as { __reviewAssistScroll: unknown }).__reviewAssistScroll = (pos: number) => EditorView.scrollIntoView(pos, { y: 'center' });
-(window as unknown as { __reviewAssistPlan: unknown }).__reviewAssistPlan = (text: string) =>
-  planFolds(text, { tableGap: view?.state.field(sharedField).config.tableGap ?? 0 });
+(window as unknown as { __reviewAssistPlan: unknown }).__reviewAssistPlan = (text: string) => planFolds(text);
 
 post({ type: 'ready' });

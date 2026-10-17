@@ -65,6 +65,9 @@ export const css = {
     color: 'var(--vscode-descriptionForeground)',
     borderBottom: '1px dashed var(--vscode-descriptionForeground)',
   },
+  // 見出しの横の PDF のページ番号。全角 1 字（1em）あけて薄く
+  '.cm-ra-pageno': { marginLeft: '1em', color: 'var(--vscode-descriptionForeground)', fontWeight: 'normal' },
+  '.cm-ra-pageno-stale': { color: 'var(--vscode-disabledForeground)' },
   '.cm-ra-figure': { textAlign: 'center' },
   '.cm-ra-figure img': { maxWidth: '100%' },
   '.cm-ra-missing': { color: 'var(--vscode-descriptionForeground)' },

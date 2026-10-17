@@ -65,7 +65,7 @@ async function pump({ ack = true } = {}) {
 const docText = () => page.evaluate(() => window.__reviewAssist.view.state.sliceDoc());
 
 await page.evaluate(() => (window.__reviewAssistHost = []));
-await post({ type: 'init', text: original, eol: '\n', config: index.config.editor, seq: 0, ...data });
+await post({ type: 'init', text: original, eol: '\n', config: index.config.editor, textWidth: core.resolveTextWidth(root, index.config.editor), seq: 0, ...data });
 await settle();
 await take();
 

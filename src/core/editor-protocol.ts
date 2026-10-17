@@ -54,7 +54,23 @@ export interface DiagView {
   source?: string;
 }
 
+/** 見出しの行と、その PDF のページ。 */
+export interface HeadingPage {
+  line: number;
+  page: number;
+}
+
+/** 本文の幅（全角の文字数）と、どこから読んだか。 */
+export interface TextWidthInfo {
+  zw: number;
+  from: string;
+}
+
 export interface EditorData {
+  /** 見出しの PDF のページ（段階 3）。 */
+  pages?: HeadingPage[];
+  /** PDF が原稿より古い（ページ番号を薄く出す）。 */
+  pagesStale?: boolean;
   refs?: Record<string, RefLabel>;
   /** `//image` の id → webview から読める URL。 */
   images?: Record<string, string>;
@@ -65,7 +81,7 @@ export interface EditorData {
 
 /** 拡張 → webview。`seq` は拡張が当て終えた webview の編集の番号（位置をその後の編集で写すため）。 */
 export type HostMessage =
-  | ({ type: 'init'; text: string; eol: '\n' | '\r\n'; config: EditorConfig; seq: number } & EditorData)
+  | ({ type: 'init'; text: string; eol: '\n' | '\r\n'; config: EditorConfig; textWidth: TextWidthInfo; seq: number } & EditorData)
   | { type: 'text'; text: string; seq: number }
   | { type: 'ack'; seq: number }
   | ({ type: 'data'; seq: number } & EditorData)

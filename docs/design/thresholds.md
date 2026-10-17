@@ -98,24 +98,59 @@
 
 ## 編集画面（`editor`、0.3.0）
 
-| 設定 | 既定 | 出どころ |
-|---|---|---|
-| `editor.hidx` | `"hide"` | 数ではない。計画書（段階 2）の「`@<hidx>` は印ごと隠す（紙面に出ないため。設定で薄く出す）」 |
-| `editor.headingScale` | `[2, 1.5, 1.17, 1, 0.83]` | HTML の h1〜h5 の既定の大きさ（HTML Living Standard「15.3.6 Sections and headings」の UA スタイルシート（2026-10-17 に取って確かめた）、`2em`・`1.5em`・`1.17em`・`1em`・`0.83em`）。`=` を h1 に当てた |
-| `editor.tableGap` | `2` | **測っていない。見た目で置いた仮の値**（半角 2 字 = 全角 1 字）。段階 3（紙面に近い見た目）で、本の表の体裁から決め直す |
+紙面に近い見た目（段階 3）の数は、**`book_mruby3` の PDF を測った値**（`tools/measure-page.mjs`、2026-10-17、
+`book_mruby3.pdf` 2026-09-28 作成、365 ページ、jsbook `uplatex,papersize,oneside,b5j,9pt`、Re:VIEW Starter）。
+PDF の文字の位置・大きさ・書体を pdf.js で取り、本文のページ（最初の章から最後まで）の中でいちばん多い値（最頻値）を採った。
+比はどれも**本文の和文の大きさ（1zw = 8.41pt）**に対するもの。編集画面は 1zw を VS Code のエディタの文字の大きさに当て、
+ほかを比で決める（だから紙面の pt は要らない）。ほかの本では `node tools/measure-page.mjs <本>` で測り直して `.review-assist.json` に書く。
 
-見出しの大きさは、紙面の見出しの大きさではない（それは段階 3 で本の `sty/` と PDF から決める）。
-段階 2 では「見出しが本文より大きく、深いほど小さい」ことが分かればよいので、ブラウザが見出しに使う既定の比を借りた。
+| 設定 | 既定 | 出どころ（PDF の値、件数は 最頻値の件数 / 全体） |
+|---|---|---|
+| `editor.page.textWidth` | `"auto"` | 本の `sty/*.sty` の `\setlength{\textwidth}{Nzw}` を読む（`book_mruby3` は `sty/mytextsize.sty:32` の 49zw）。読めなければ 49（PDF の両端をそろえた行の幅 412.13pt ÷ 8.41pt = 49.0、712 / 3622 行） |
+| `editor.page.lineHeight` | `1.622` | 本文の行の送り 13.64pt ÷ 8.41pt（3264 / 3497） |
+| `editor.page.paragraphIndent` | `1` | 段落の頭の字下げ 8.41pt ÷ 8.41pt（本文の行の左端 51.89pt より右で始まる行の、左端との差の最頻値。897 / 1527） |
+| `editor.page.latinScale` | `1.082` | 本文の欧文 9.1pt（LMRoman10、6687 / 7236）÷ 和文 8.41pt（15565 / 16194）。見出しでも 13.1 ÷ 12.11、10.92 ÷ 10.09 で同じ比 |
+| `editor.headingScale` | `[1.728, 1.44, 1.2, 1]` | 見出しの和文（Noto Sans CJK JP Bold）: 章の題 14.53pt（21 / 35）、`==` 12.11pt（89 / 89）、`===` 10.09pt（345 / 345）、`====` 8.41pt（68 / 68）を 8.41pt で割った。索引の見出し 580 のうち PDF で見つかった 477 から（`=====` は原稿に無い） |
+| `editor.page.inlineCodeScale` | `0.974` | 地の文の中の `@<code>`（Bera Sans Mono）8.19pt ÷ 8.41pt（6707 / 6788） |
+| `editor.page.captionScale` | `0.9` | キャプション（「▼表 3.1: …」の和文、Noto Sans CJK JP）7.57pt ÷ 8.41pt（467 / 603） |
+| `editor.page.codeScale` | `0.876` | コードの等幅（Bera Sans Mono）7.37pt ÷ 8.41pt（18204 / 18351） |
+| `editor.page.codeLineHeight` | `1.335` | コードの行の送り 9.84pt ÷ 7.37pt（3589 / 4646） |
+| `editor.page.tableScale` | `0.9` | 表のセル 7.57pt ÷ 8.41pt（原稿の表のセルで本の中に 1 回しか出ない文字列 622 を PDF で探し、見つかった 271 のうち 217） |
+| `editor.page.tableLineHeight` | `1.61` | 表の行の送り 12.19pt ÷ 7.57pt（148 / 209） |
+| `editor.tableGap` | `3` | 表の列の間（前の列のいちばん広いセルの終わりから次の列の始まりまで）11.28pt（35 / 88）÷ 表の文字の半角（7.57pt ÷ 2）= 2.98 を丸めた。段階 2 の仮の値 2 を、これで置き換えた |
+| `editor.page.fonts.*` | 下記 | PDF に埋め込まれた書体の名前（pypdf と pdf.js で読んだ） |
+| `editor.hidx` | `"hide"` | 数ではない。計画書（段階 2）の「`@<hidx>` は印ごと隠す（紙面に出ないため。設定で薄く出す）」 |
+
+段階 2 の `editor.headingScale` は HTML の h1〜h5 の既定の大きさ（`[2, 1.5, 1.17, 1, 0.83]`）を借りていた。段階 3 で、
+紙面の見出しの大きさを測った上の値に替えた。
+
+**書体**（`editor.page.fonts`）。PDF に埋め込まれていた書体と、PC に無いときに使う近いもの（前から順に、PC にあるものが使われる）:
+
+| 用途 | PDF | 既定の並び（理由） |
+|---|---|---|
+| 本文の和文 | Noto Serif CJK JP Regular | Noto Serif CJK JP、Noto Serif JP（同じ字形の Web 用）、Yu Mincho / YuMincho（Windows の標準の明朝）、Hiragino Mincho ProN（macOS） |
+| 本文の欧文 | Latin Modern Roman 10（LMRoman10-Regular） | LM Roman 10、CMU Serif（Computer Modern の Unicode 版）。どれも無ければ和文の書体の欧文 |
+| 見出しの和文 | Noto Sans CJK JP Bold | Noto Sans CJK JP、Noto Sans JP、Yu Gothic / YuGothic、Hiragino Sans |
+| 見出しの欧文 | Nimbus Sans L Bold | Nimbus Sans L、Helvetica、Arial、Liberation Sans（Nimbus Sans L は Helvetica の互換、Arial と Liberation Sans は Helvetica と字幅が同じ） |
+| コード | Bera Sans Mono（＋和文は Noto Serif CJK JP） | Bera Sans Mono、Bitstream Vera Sans Mono、DejaVu Sans Mono（Bera は Vera の LaTeX 版、DejaVu は Vera から派生した同じ字形）、和文は本文と同じ |
+
+欧文の大きさを和文の 1.082 倍にするのは、欧文の書体を `@font-face` の `size-adjust` で包んで行う（`unicode-range` で欧文と記号だけ）。
+`local()` で引くので、PC に無ければその面は使われず、次の書体（和文の書体の欧文）に落ちる。
+
+**測ったが使わなかった値**: コードの中の和文 7.57pt（コードの等幅 7.37pt と 2.7% 違う）。CSS では 1 つの行の中の和文だけ
+大きさを変えるのに、和文の書体も `@font-face` で `local()` の正式な名前（`Noto Serif CJK JP Regular` など、書体と PC で違う）を
+並べて包む必要があり、2.7% のために名前の当て推量を増やすのはやめた。
 
 **色と書体は数を持たない。** どれも VS Code のテーマの CSS 変数（`--vscode-editor-font-family`、
 `--vscode-textLink-foreground`、`--vscode-errorForeground`、`--vscode-editorWarning-foreground` など）を使う
 （`src/webview/style.ts`）。マーカーの色は `marks.kinds` のもの。
 
 **設定にしていない数**（`src/webview/style.ts`）: 罫線の `1px`、札の内側の余白（`0.3em` など）、ホバーの窓の幅の上限
-（`40em`）、引用の左の余白（`1em`）、キャプションの前の余白（`0.5em`）。どれも紙面にも原稿にも関わらない画面の飾りで、
-出どころは無い（見た目で置いた）。段階 3 で見た目を本の設定から作るときに見直す。
+（`40em`）、引用の左の余白（`1em`）、キャプションの前の余白（`0.5em`）、見出しとページ番号の間（`1em` = 全角 1 字）。
+どれも紙面にも原稿にも関わらない画面の飾り（紙面に無いもの）で、出どころは無い（見た目で置いた）。段階 3 で見直したが、
+紙面に対応する物が無いので測りようがなく、そのままにした。
 
 **打つたびの待ち時間（間引き）は持たない。** `contents/vm.re`（137 KB）で 1 文字打ってから CodeMirror が更新を終えるまで
-中央値 4.4〜4.8 ms、最大 13.5〜14.6 ms で、1 フレーム（16.7 ms）に収まる。いちばん大きい生成物の `contents/opcodes.re`（287 KB）でも
-中央値 8.2〜8.5 ms（`../verification/editor.md`）。間引きの待ち時間を作れば、その既定値を
+中央値 4.4〜4.8 ms（段階 3 の紙面に近い見た目で 5.1〜5.7 ms）、最大 13.5〜20.2 ms で、ほぼ 1 フレーム（16.7 ms）に収まる。
+いちばん大きい生成物の `contents/opcodes.re`（287 KB）でも中央値 8.2〜9.1 ms（`../verification/editor.md`、`page.md`）。間引きの待ち時間を作れば、その既定値を
 また測ることになる。マーカー（0.2.0）と同じ判断。

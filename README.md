@@ -227,7 +227,7 @@ node dist/cli.js marks /path/to/book --request  # AI チェックの依頼を書
 | `#@#` | 行を薄く |
 | ` * ` ` ** ` ` 1. ` ` : ` | 印を「•」（深さは全角の空白で字下げ）、「1.」に。` : ` の語は太字 |
 | `//list` `//listnum` `//emlist` `//emlistnum` `//cmd` `//source` | 頭の行を「リスト id キャプション」の見出しに、中を等幅で枠に。`//}` は線 |
-| `//table` | 頭の行を「表 id キャプション」に。セルを等幅でそろえ（タブを列の幅まで広げる。設定 `editor.tableGap`）、区切りの行より上を太字（区切りが無ければ 1 列目）。セルはそのまま打てる |
+| `//table` | 頭の行を「表 id キャプション」に。列をそろえ（タブを、実際の書体で測った列の幅まで広げる。列の間は設定 `editor.tableGap`）、区切りの行より上を太字（区切りが無ければ 1 列目）。セルはそのまま打てる |
 | `//tsize[…]` | 「tsize …」の札 |
 | `//image` | 頭の行を「図 id キャプション」に、その下に PNG（設定 `imagePreview`。`scale=` を幅の比に） |
 | `//footnote` | 「脚注 id 文」に |
@@ -239,6 +239,32 @@ node dist/cli.js marks /path/to/book --request  # AI チェックの依頼を書
 畳まない（コードとして読めることを優先した。構文の色付けと同じ判断）。
 
 右クリックのメニューと `Ctrl+F` は VS Code の webview の仕組みで出ている。キーの割り当ての例は下の「キーバインドの例」。
+
+### 紙面に近い見た目（0.3.0）
+
+記法を畳む編集画面は、本文の幅・文字の大きさの比・行の送り・書体を、本の紙面（PDF）に近づけて出す。
+**本文の和文 1 字（1zw）を VS Code のエディタの文字の大きさに当て**、ほかは 1zw に対する比で決める（紙面の pt は使わない）。
+
+| 何 | どう決まるか |
+|---|---|
+| 本文の幅 | 本の `sty/*.sty` の `\setlength{\textwidth}{49zw}` を読み、全角 49 字の幅で折り返す（`book_mruby3` は `sty/mytextsize.sty`） |
+| 段落の頭 | 1 字下げる |
+| 行の送り、見出し・コード・表・キャプション・地の文の `@<code>` の大きさ、表の列の間 | `book_mruby3` の PDF を測った比（`docs/design/thresholds.md`）。設定 `editor.page` で変えられる |
+| 書体 | PDF と同じもの（Noto Serif CJK JP、LM Roman、Noto Sans CJK JP、Nimbus Sans L、Bera Sans Mono）が PC にあればそれ、無ければ近いもの（Noto Serif JP、Yu Mincho、Yu Gothic、Arial、DejaVu Sans Mono など） |
+| 表 | セルを実際の書体で測って列をそろえる。見出しの行（区切りの行より上、区切りが無ければ 1 列目）はゴシック |
+| 見出しのページ | 見出しの横に PDF のページ（設定 `pageIndex`）。原稿が未保存か PDF より新しいと薄く出る |
+| はみ出し | 表の幅とコードの行長は、既存の診断（`table-width`、`code-line-length`）が波線で出る |
+
+紙面と同じにはならない（見出しの番号、表の罫線、改行の位置などは違う。紙面の正は PDF で、「この節を PDF で開く」で見る）。
+`book_mruby3` で改行の位置を比べた結果は `docs/verification/page.md`（原稿の改行をそのまま出すので、段落の 2 行目から先はずれる）。
+段階 2 の見た目（UI の書体、幅の制限なし）に戻すなら `{"editor": {"page": {"enable": false}}}`。
+
+ほかの本では、PDF と `pageIndex` を `.review-assist.json` に書いてから測って、出た比を `editor.page` に写す
+（このリポジトリを clone して `npm install`、`npm run build` の後で）:
+
+```sh
+node tools/measure-page.mjs /path/to/book    # 本文の 1zw に対する比を JSON で出す
+```
 
 ### VS Code 無しで全体を見る（CLI）
 
@@ -304,8 +330,19 @@ error が 1 件でもあれば終了コード 1。CI で原稿を見張るのに
 | `marks.contextParagraphs` | `1` | 依頼に、選んだ所を含む段落の前後から何段落ずつ添えるか |
 | `marks.dir` | `".review-assist"` | マーカーと受け渡しのファイルを置くディレクトリ |
 | `editor.hidx` | `"hide"` | 編集画面（0.3.0）で `@<hidx>` を印ごと隠す（`"hide"`）か薄く出す（`"faint"`） |
-| `editor.headingScale` | `[2, 1.5, 1.17, 1, 0.83]` | 編集画面の見出しの文字の大きさ（本文に対する倍率）。`=` から順に、足りない深さは最後の値。既定は HTML の h1〜h5 の既定の大きさ（`docs/design/thresholds.md`） |
-| `editor.tableGap` | `2` | 編集画面の表で、列の間に足す幅（半角の個数）。見た目で置いた仮の値 |
+| `editor.headingScale` | `[1.728, 1.44, 1.2, 1]` | 編集画面の見出しの文字の大きさ（本文の 1zw に対する比）。`=` から順に、足りない深さは最後の値 |
+| `editor.tableGap` | `3` | 編集画面の表の列の間（表の文字の半角の個数） |
+| `editor.page.enable` | `true` | 紙面に近い見た目。`false` で段階 2 の見た目 |
+| `editor.page.textWidth` | `"auto"` | 本文の幅（全角の字数）。`"auto"` は本の `sty/*.sty` から読み、無ければ 49 |
+| `editor.page.lineHeight` | `1.622` | 本文の行の送り（1zw に対する比） |
+| `editor.page.paragraphIndent` | `1` | 段落の頭の字下げ（zw） |
+| `editor.page.latinScale` | `1.082` | 欧文の大きさ（和文に対する比） |
+| `editor.page.inlineCodeScale` | `0.974` | 地の文の `@<code>` の大きさ |
+| `editor.page.captionScale` | `0.9` | キャプション（ブロックの頭の札）の大きさ |
+| `editor.page.codeScale` / `codeLineHeight` | `0.876` / `1.335` | コードの大きさ（1zw に対する比）と行の送り（コードの大きさに対する比） |
+| `editor.page.tableScale` / `tableLineHeight` | `0.9` / `1.61` | 表の文字の大きさと行の送り |
+| `editor.page.pageNumbers` | `true` | 見出しの横に PDF のページを出す |
+| `editor.page.fonts` | 上の表 | `body`、`bodyLatin`、`heading`、`headingLatin`、`code`、`codeCjk` の書体の並び（`bodyLatin` と `headingLatin` は `local()` の名前）。数の出どころと書体の理由は `docs/design/thresholds.md` |
 | `rules` | `[]` | 下記 |
 
 ### `outline.blocks`

@@ -1,7 +1,8 @@
 // 編集画面（0.3.0）に拡張の側から送るもの。参照の札に出す題、参照の候補、図の PNG の場所。
 // 索引（ReviewIndex）を読むので webview の束には入らない。VS Code には依存しない。
 import { refKey, type CompletionCandidate } from './editing.js';
-import type { LineCol, MarkView, RefLabel, TextChange } from './editor-protocol.js';
+import type { HeadingPage, LineCol, MarkView, RefLabel, TextChange } from './editor-protocol.js';
+import { lookupPage, type PageIndex } from './pdfpages.js';
 import { anchorMark, lineStarts, posAt, type AiResult, type MarksConfig, type MarksData } from './marks.js';
 import type { ReviewIndex } from './index.js';
 import { stripInline } from './parser.js';
@@ -148,5 +149,20 @@ export function applyTextChanges(text: string, changes: TextChange[], eol: strin
   const sorted = changes.map((c) => ({ from: off(c.from), to: off(c.to), insert: c.insert.replace(/\r?\n/g, eol) })).sort((a, b) => b.from - a.from);
   let out = text;
   for (const c of sorted) out = out.slice(0, c.from) + c.insert + out.slice(c.to);
+  return out;
+}
+
+/**
+ * 見出しの行ごとの PDF のページ（設定 `pageIndex` の索引から）。章の題（`=`）は章のページ、ほかの見出しは
+ * その見出しの鍵がそのまま索引にあるときだけ（上の段や章の先頭に落としたページは、その見出しのページではないので出さない）。
+ */
+export function headingPages(index: ReviewIndex, pages: PageIndex, file: string, parsed: ParsedFile): HeadingPage[] {
+  const out: HeadingPage[] = [];
+  for (const h of parsed.headings) {
+    const line = h.span.start.line;
+    const r = lookupPage(index, pages, file, line);
+    if (r.kind !== 'ok' || r.heading !== h) continue;
+    if (r.via === 'heading' || (h.level === 1 && r.via === 'chapter')) out.push({ line, page: r.page });
+  }
   return out;
 }

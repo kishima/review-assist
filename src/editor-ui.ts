@@ -7,7 +7,10 @@ import * as fs from 'node:fs';
 import * as vscode from 'vscode';
 import { BLOCK_TEMPLATES, wrapInline } from './core/editing.js';
 import { defaultEditorConfig } from './core/editor-config.js';
-import { applyTextChanges, completionCandidates, imagePaths, markViews, refLabels } from './core/editor-data.js';
+import { resolveTextWidth } from './core/booklayout.js';
+import { applyTextChanges, completionCandidates, headingPages, imagePaths, markViews, refLabels } from './core/editor-data.js';
+import { loadPageIndex } from './core/pdfpages.js';
+import type { ParsedFile } from './core/types.js';
 import type { DiagView, EditorData, HostMessage, LineCol, ViewMessage } from './core/editor-protocol.js';
 import type { MarkHost } from './marks-ui.js';
 
@@ -131,8 +134,27 @@ export class ReviewEditorProvider implements vscode.CustomTextEditorProvider, vs
         if (fs.existsSync(abs)) images[id] = s.panel.webview.asWebviewUri(vscode.Uri.file(abs)).toString();
       }
       data.images = images;
+      const pages = this.pageData(host, rel, parsed, s.document);
+      if (pages) Object.assign(data, pages);
     }
     return data;
+  }
+
+  /** 見出しの PDF のページと、PDF が原稿より古いか（段階 3）。設定 `pageIndex` が無ければ undefined。 */
+  private pageData(host: MarkHost, rel: string, parsed: ParsedFile, document: vscode.TextDocument): EditorData | undefined {
+    if (!host.index.config.editor.page.enable || !host.index.config.editor.page.pageNumbers) return undefined;
+    const load = loadPageIndex(host.index);
+    if (!load.pages) return undefined;
+    // 古い: 原稿が未保存か、原稿のファイルの方が PDF より新しい
+    let stale = document.isDirty;
+    const pdf = host.index.config.pdf;
+    try {
+      const pdfTime = pdf ? fs.statSync(host.index.abs(pdf)).mtimeMs : 0;
+      if (fs.statSync(host.index.abs(rel)).mtimeMs > pdfTime) stale = true;
+    } catch {
+      stale = true;
+    }
+    return { pages: headingPages(host.index, load.pages, rel, parsed), pagesStale: stale };
   }
 
   private completions(s: Session) {
@@ -160,7 +182,8 @@ export class ReviewEditorProvider implements vscode.CustomTextEditorProvider, vs
     const data: EditorData = { ...this.fileData(s), completions: this.completions(s), diagnostics: this.diagnostics(s) };
     s.lastSent.clear();
     for (const [k, v] of Object.entries(data)) s.lastSent.set(k, JSON.stringify(v));
-    this.post(s, { type: 'init', text: s.mirror, eol: eolOf(s.document), config, seq: s.appliedSeq, ...data });
+    const textWidth = resolveTextWidth(host?.index.root ?? '', config);
+    this.post(s, { type: 'init', text: s.mirror, eol: eolOf(s.document), config, textWidth, seq: s.appliedSeq, ...data });
   }
 
   private sendData(s: Session, data: EditorData): void {
