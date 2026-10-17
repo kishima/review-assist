@@ -23,7 +23,7 @@
 | [stage1-2.md](verification/stage1-2.md) | 単体テストの一覧、`book_mruby3` 全体に掛けた結果、過去のコミットに対する回帰の確認 |
 | [marks.md](verification/marks.md) | 0.2.0 のマーカー。単体テストと計画書の確認の対応、`book_mruby3` の過去の修正 93 コミットに当てて見失う・取り違える割合を前後の文脈の長さごとに数えた表、探し直しの速さ、依頼 → AI の結果 → 読み込みの 1 巡 |
 | [editor.md](verification/editor.md) | 0.3.0 の記法を畳む編集画面。単体テスト、`book_mruby3` の全 57 本を Chromium で開いて文字列が変わらないこととカーソルで記法が出ること（17,307 か所）、畳んだ記法の数と記法のまま残ったもの（0）、打つときの遅さ、拡張の側とのやりとり、`.vsix` |
-| [feedback-0.3.0.md](verification/feedback-0.3.0.md) | 0.3.0 を著者が Windows で試した後の直し。参照の札を Re:VIEW のビルドの .tex（表・リスト・図 88、見出し 166、章 277、脚注 3）と PDF に当てた結果、コードの書体を Chromium で取った前後、PDF の画面がそのページを出すこと、`.vsix` |
+| [feedback-0.3.0.md](verification/feedback-0.3.0.md) | 0.3.0 を著者が Windows で試した後の直し。参照の札を Re:VIEW のビルドの .tex（表・リスト・図 88、見出し 166、章 277、脚注 3）と PDF に当てた結果、コードの書体を Chromium で取った前後、PDF の画面がそのページを出すこと（リモートの窓の直列化を再現してから直した）、畳んだ記法の背景の画像、`.vsix` |
 | [page.md](verification/page.md) | 0.3.0 の紙面に近い見た目。`book_mruby3` の PDF を測った値（本文・見出し・コード・表の大きさと行の送り、本文の幅、書体）、PDF と編集画面の改行の位置を本全体で比べた数、並べた画像（`images/`） |
 | [stage3-4.md](verification/stage3-4.md) | 見出し 576 件が PDF のどのページに当たったか、PDF のしおりとの突き合わせ、図の PNG、`.vsix`、CI で確かめていないこと |
 

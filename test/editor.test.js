@@ -330,6 +330,12 @@ test('設定 editor: 既定値（book_mruby3 の PDF を測った値）と読み
   assert.deepStrictEqual(readEditorConfig({ hidx: 'x', headingScale: ['a'], tableGap: -1, page: { textWidth: 'wide', lineHeight: -1, fonts: { body: [] } } }), d);
 });
 
+test('設定 editor.foldedBackground: 既定は VS Code のテーマの色、false で切る、色を替える', () => {
+  assert.deepStrictEqual(defaultEditorConfig().foldedBackground, { enable: true, color: 'var(--vscode-textPreformat-background, var(--vscode-textCodeBlock-background))' });
+  assert.strictEqual(readEditorConfig({ foldedBackground: false }).foldedBackground.enable, false);
+  assert.deepStrictEqual(readEditorConfig({ foldedBackground: { color: '#ff000022' } }).foldedBackground, { enable: true, color: '#ff000022' });
+});
+
 test('本文の幅: sty の \\setlength{\\textwidth}{Nzw} を読む（コメントは外す、最後のものが効く）', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ra-sty-'));
   fs.mkdirSync(path.join(dir, 'sty'));

@@ -119,6 +119,7 @@ PDF の文字の位置・大きさ・書体を pdf.js で取り、本文のペ�
 | `editor.page.tableLineHeight` | `1.61` | 表の行の送り 12.19pt ÷ 7.57pt（148 / 209） |
 | `editor.tableGap` | `3` | 表の列の間（前の列のいちばん広いセルの終わりから次の列の始まりまで）11.28pt（35 / 88）÷ 表の文字の半角（7.57pt ÷ 2）= 2.98 を丸めた。段階 2 の仮の値 2 を、これで置き換えた |
 | `editor.page.fonts.*` | 下記 | PDF に埋め込まれた書体の名前（pypdf と pdf.js で読んだ） |
+| `editor.foldedBackground` | `{ "enable": true, "color": "var(--vscode-textPreformat-background, var(--vscode-textCodeBlock-background))" }` | 畳んだ記法（インライン命令の中身、参照などの札）に敷く背景。VS Code のテーマの色 `textPreformat.background`（Markdown のプレビューやホバーで地の文の中の `code` に敷く色。Light Modern で `#0000001F`、Dark Modern で `#3C3C3C`。`extensions/theme-defaults/themes/*_modern.json`）を借りた。明暗どちらのテーマでも地の文の上で文字が読めるように作られた色なので、新しい色を持たない。古い VS Code やテーマに無ければ `textCodeBlock.background` |
 | `editor.hidx` | `"hide"` | 数ではない。計画書（段階 2）の「`@<hidx>` は印ごと隠す（紙面に出ないため。設定で薄く出す）」 |
 
 段階 2 の `editor.headingScale` は HTML の h1〜h5 の既定の大きさ（`[2, 1.5, 1.17, 1, 0.83]`）を借りていた。段階 3 で、

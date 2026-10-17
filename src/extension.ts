@@ -276,9 +276,11 @@ function openInPdf(): void {
   if (!t) return;
   // ワークスペースの URI の形（リモートなら vscode-remote:）で読む。拡張はワークスペースの側で動いているので file: でも読めるが、
   // workspace.fs を通しておけば、どちらの側で動いても同じ
-  const folder = workspaces.find((w) => t.pdfAbs.startsWith(w.index.root))?.folder;
-  const uri = folder ? folder.uri.with({ path: vscode.Uri.file(t.pdfAbs).path }) : vscode.Uri.file(t.pdfAbs);
-  void pdfPanel.show(uri, t.page).catch((e) => void vscode.window.showWarningMessage(`review-assist: ${t.pdfRel} を開けませんでした（${e instanceof Error ? e.message : String(e)}）`));
+  const ws = workspaces.find((w) => t.pdfAbs.startsWith(w.index.root));
+  const asUri = (abs: string) => (ws ? ws.folder.uri.with({ path: vscode.Uri.file(abs).path }) : vscode.Uri.file(abs));
+  const uri = asUri(t.pdfAbs);
+  const root = asUri(path.dirname(t.pdfAbs));
+  void pdfPanel.show(uri, t.page, root).catch((e) => void vscode.window.showWarningMessage(`review-assist: ${t.pdfRel} を開けませんでした（${e instanceof Error ? e.message : String(e)}）`));
   output.appendLine(`PDF: ${t.pdfRel} p.${t.page}（${t.where}）`);
 }
 

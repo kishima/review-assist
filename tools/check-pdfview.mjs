@@ -27,57 +27,96 @@ index.build();
 const pdfPath = index.abs(index.config.pdf);
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 700, height: 1000 } });
-const errors = [];
-page.on('pageerror', (e) => errors.push(e.message));
-page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 const files = {
   '/': path.join(here, 'pdf-harness.html'),
   '/dist/pdfview.js': path.join(repo, 'dist', 'pdfview.js'),
   '/dist/pdf.worker.min.mjs': path.join(repo, 'dist', 'pdf.worker.min.mjs'),
   '/book.pdf': pdfPath,
 };
-await page.route('http://ra.test/**', (route) => {
-  const f = files[new URL(route.request().url()).pathname];
-  if (!f) return route.fulfill({ status: 404 });
-  const type = f.endsWith('.html') ? 'text/html' : f.endsWith('.pdf') ? 'application/pdf' : 'text/javascript';
-  return route.fulfill({ contentType: type, body: fs.readFileSync(f) });
-});
-await page.goto('http://ra.test/');
-await page.waitForFunction(() => window.__reviewAssistHost?.some((m) => m.type === 'ready'));
 
+// PDF の渡し方。拡張の今の渡し方は url。bytes と json は postMessage でバイト列を渡したとき（古い渡し方と、その代わりの道）:
+//   bytes  Uint8Array のまま届く（手元の窓で structured clone されたとき）
+//   json   JSON を通った形で届く（{"0":37,"1":80,…} の普通のオブジェクト）。リモートの窓（WSL）で VS Code が
+//          メッセージを直列化したときに起きうる形で、0.3.0 の最初の形では pdf.js が「Invalid PDF binary data」で落ちた
+//   nourl  url から読めない（404）。webview が fetchFailed を拡張に送ること（拡張はバイト列を送り直す）だけを見る
+const modes = (args.find((a) => a.startsWith('--modes='))?.slice('--modes='.length) ?? 'url,bytes,json,nourl').split(',');
 let failures = 0;
-const t0 = Date.now();
-// 拡張と同じく、バイト列を load で渡す（ページは最初の 1 つ）
-await page.evaluate(async (first) => {
-  const data = new Uint8Array(await (await fetch('/book.pdf')).arrayBuffer());
-  window.__reviewAssistHost = [];
-  window.postMessage({ type: 'load', data, page: first, name: 'book.pdf' }, '*');
-}, pages[0]);
-for (const [i, n] of pages.entries()) {
-  if (i > 0) await page.evaluate((n) => { window.__reviewAssistHost = []; window.postMessage({ type: 'goto', page: n }, '*'); }, n);
-  await page.waitForFunction(() => window.__reviewAssistHost.some((m) => m.type === 'shown' || m.type === 'error'), null, { timeout: 30000 });
-  if (i === 0) console.log(`読み込みと最初のページまで ${Date.now() - t0} ms`);
-  const r = await page.evaluate((n) => {
-    const shown = window.__reviewAssistHost.find((m) => m.type === 'shown' || m.type === 'error');
-    const el = document.querySelector(`.page[data-page="${n}"]`);
-    const box = el.getBoundingClientRect();
-    const canvas = el.querySelector('canvas');
-    let ink = 0;
-    if (canvas) {
-      const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-      for (let k = 0; k < d.length; k += 16) if (d[k] < 200) ink++;
+for (const mode of modes) {
+  const page = await browser.newPage({ viewport: { width: 700, height: 1000 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await page.route('http://ra.test/**', (route) => {
+    const f = files[new URL(route.request().url()).pathname];
+    if (!f) return route.fulfill({ status: 404 });
+    const type = f.endsWith('.html') ? 'text/html' : f.endsWith('.pdf') ? 'application/pdf' : 'text/javascript';
+    return route.fulfill({ contentType: type, body: fs.readFileSync(f) });
+  });
+  await page.goto('http://ra.test/');
+  await page.waitForFunction(() => window.__reviewAssistHost?.some((m) => m.type === 'ready'));
+  console.log(`渡し方 ${mode}:`);
+  const t0 = Date.now();
+  await page.evaluate(
+    async ({ first, mode }) => {
+      window.__reviewAssistHost = [];
+      if (mode === 'url' || mode === 'nourl') {
+        window.postMessage({ type: 'load', url: mode === 'url' ? '/book.pdf' : '/nosuch.pdf', page: first, name: 'book.pdf' }, '*');
+        return;
+      }
+      const bytes = new Uint8Array(await (await fetch('/book.pdf')).arrayBuffer());
+      const data = mode === 'json' ? JSON.parse(JSON.stringify(bytes)) : bytes;
+      window.postMessage({ type: 'load', data, page: first, name: 'book.pdf' }, '*');
+    },
+    { first: pages[0], mode }
+  );
+  if (mode === 'nourl') {
+    const got = await page
+      .waitForFunction(() => window.__reviewAssistHost.find((m) => m.type === 'fetchFailed'), null, { timeout: 10000 })
+      .then((h) => h.jsonValue(), () => undefined);
+    console.log(`  ${got ? 'ok  ' : 'FAIL'} fetchFailed ${JSON.stringify(got)}`);
+    if (!got) failures++;
+    await page.close();
+    continue;
+  }
+  for (const [i, n] of pages.entries()) {
+    if (i > 0)
+      await page.evaluate((n) => {
+        window.__reviewAssistHost = [];
+        window.postMessage({ type: 'goto', page: n }, '*');
+      }, n);
+    const done = await page
+      .waitForFunction(() => window.__reviewAssistHost.some((m) => m.type === 'shown' || m.type === 'error'), null, { timeout: 30000 })
+      .then(() => true, () => false);
+    if (!done) {
+      failures++;
+      console.log(`FAIL p.${n}: 30 秒たっても shown も error も来ない`);
+      break;
     }
-    return { shown, top: Math.round(box.top), canvas: !!canvas, ink };
-  }, n);
-  const ok = r.shown?.type === 'shown' && r.shown.page === n && Math.abs(r.top) <= 1 && r.canvas && r.ink > 0;
-  if (!ok) failures++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} p.${n}: shown ${JSON.stringify(r.shown)}、ページの上端 ${r.top}px、canvas ${r.canvas}、黒い画素 ${r.ink}`);
-}
-if (shot) await page.screenshot({ path: shot });
-if (errors.length) {
-  failures++;
-  console.log('エラー:', errors);
+    if (i === 0) console.log(`  読み込みと最初のページまで ${Date.now() - t0} ms`);
+    const r = await page.evaluate((n) => {
+      const shown = window.__reviewAssistHost.find((m) => m.type === 'shown' || m.type === 'error');
+      const el = document.querySelector(`.page[data-page="${n}"]`);
+      if (!el) return { shown };
+      const box = el.getBoundingClientRect();
+      const canvas = el.querySelector('canvas');
+      let ink = 0;
+      if (canvas) {
+        const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let k = 0; k < d.length; k += 16) if (d[k] < 200) ink++;
+      }
+      return { shown, top: Math.round(box.top), canvas: !!canvas, ink };
+    }, n);
+    const ok = r.shown?.type === 'shown' && r.shown.page === n && Math.abs(r.top) <= 1 && r.canvas && r.ink > 0;
+    if (!ok) failures++;
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} p.${n}: ${JSON.stringify(r.shown)}、ページの上端 ${r.top}px、canvas ${r.canvas}、黒い画素 ${r.ink}`);
+    if (!ok) break;
+  }
+  if (shot && mode === modes[0]) await page.screenshot({ path: shot });
+  if (errors.length) {
+    failures++;
+    console.log('  エラー:', errors);
+  }
+  await page.close();
 }
 await browser.close();
 process.exit(failures === 0 ? 0 : 1);

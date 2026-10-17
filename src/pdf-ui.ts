@@ -1,5 +1,6 @@
 // 「この節を PDF で開く」の、VS Code の中の PDF の画面（0.3.0）。webview（dist/pdfview.js、pdf.js）を編集画面の横に開き、
-// 言われたページへ飛ぶ。PDF は拡張の側で workspace.fs で読んでバイト列で送るので、WSL や SSH のリモートの窓でも開ける
+// 言われたページへ飛ぶ。PDF は webview が webview.asWebviewUri の URL から読む（VS Code の資源の読み込みを通るので、WSL や SSH の
+// リモートの窓でも読める）。読めなかったときだけ、拡張が workspace.fs で読んでバイト列で送る
 // （0.2.0 までは PDF の file: の URI を既定のビューアに渡していて、リモートの窓では vscode-remote: のリンクになって開けなかった）。
 import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
@@ -14,6 +15,10 @@ export class PdfPanel implements vscode.Disposable {
   private loaded: { uri: string; mtime: number } | undefined;
   /** webview の用意ができる前に頼まれたもの。 */
   private pending: { pdf: vscode.Uri; page: number } | undefined;
+  /** いま webview に読ませている PDF とページ（url で読めなかったときにバイト列を送り直すため）。 */
+  private current: { pdf: vscode.Uri; page: number } | undefined;
+  /** localResourceRoots に入れた PDF のフォルダ。 */
+  private root: vscode.Uri | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -24,8 +29,15 @@ export class PdfPanel implements vscode.Disposable {
     this.panel?.dispose();
   }
 
-  /** PDF の画面を編集画面の横に出し、そのページへ。フォーカスは原稿に残す。 */
-  async show(pdf: vscode.Uri, page: number): Promise<void> {
+  /**
+   * PDF の画面を編集画面の横に出し、そのページへ。フォーカスは原稿に残す。`root` は PDF を含むフォルダ（webview から読めるようにする）。
+   */
+  async show(pdf: vscode.Uri, page: number, root: vscode.Uri): Promise<void> {
+    const roots = [vscode.Uri.joinPath(this.extensionUri, 'dist'), root];
+    if (this.panel && this.root?.toString() !== root.toString()) {
+      // 別の本の PDF: 読める場所が変わるので作り直す
+      this.panel.dispose();
+    }
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
         PDF_VIEW_TYPE,
@@ -33,11 +45,12 @@ export class PdfPanel implements vscode.Disposable {
         { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
         {
           enableScripts: true,
-          // 裏に回すたびに PDF を送り直して全ページを並べ直さないよう、中身を保つ
+          // 裏に回すたびに PDF を読み直して全ページを並べ直さないよう、中身を保つ
           retainContextWhenHidden: true,
-          localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist')],
+          localResourceRoots: roots,
         }
       );
+      this.root = root;
       this.ready = false;
       this.loaded = undefined;
       this.panel.webview.html = this.html(this.panel.webview);
@@ -63,9 +76,21 @@ export class PdfPanel implements vscode.Disposable {
       this.post({ type: 'goto', page: p.page });
       return;
     }
-    const data = await vscode.workspace.fs.readFile(p.pdf);
     this.loaded = { uri: p.pdf.toString(), mtime: stat.mtime };
-    this.panel.title = `PDF: ${p.pdf.path.split('/').pop()}`;
+    this.current = p;
+    const name = p.pdf.path.split('/').pop() ?? 'PDF';
+    this.panel.title = `PDF: ${name}`;
+    // webview が自分で読む（VS Code の資源の読み込みを通るので、WSL・SSH のリモートの窓でも読める）
+    this.post({ type: 'load', url: this.panel.webview.asWebviewUri(p.pdf).toString(), page: p.page, name });
+  }
+
+  /** url から読めなかったとき: バイト列を送る。読んだ Buffer はプールの一部のことがあるので、ちょうどの長さの Uint8Array に写す。 */
+  private async sendBytes(): Promise<void> {
+    const p = this.current;
+    if (!p || !this.panel) return;
+    const read = await vscode.workspace.fs.readFile(p.pdf);
+    const data = new Uint8Array(read.byteLength);
+    data.set(read);
     this.post({ type: 'load', data, page: p.page, name: p.pdf.path.split('/').pop() ?? 'PDF' });
   }
 
@@ -77,6 +102,9 @@ export class PdfPanel implements vscode.Disposable {
     if (m.type === 'ready') {
       this.ready = true;
       void this.flush();
+    } else if (m.type === 'fetchFailed') {
+      this.output.appendLine(`PDF の画面: url から読めなかった（${m.message}）。バイト列で送る`);
+      void this.sendBytes();
     } else if (m.type === 'error') {
       this.output.appendLine(`PDF の画面: ${m.message}`);
       void vscode.window.showWarningMessage(`review-assist: PDF を表示できません（${m.message}）`);

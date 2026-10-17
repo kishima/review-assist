@@ -703,6 +703,9 @@ function themeFor(config: EditorConfig, textWidth: TextWidthInfo): Extension {
     rules[`.cm-ra-h${i}`] = { fontSize: `${s}em` };
   }
   const p = config.page;
+  // 畳んだ記法（インライン命令の中身、参照などの札）に薄い背景を敷く。設定 editor.foldedBackground
+  const tint = config.foldedBackground.enable ? config.foldedBackground.color : undefined;
+  if (tint) rules['.cm-ra-code, .cm-ra-bold, .cm-ra-link, .cm-ra-faint, .cm-ra-chip'] = { backgroundColor: tint };
   if (p.enable) {
     // 紙面に近い見た目（段階 3）。1zw = エディタの文字の大きさ。比は設定 editor.page（本の PDF を測った値）
     const body = family(['ra-body-latin', ...p.fonts.body]);
@@ -717,7 +720,7 @@ function themeFor(config: EditorConfig, textWidth: TextWidthInfo): Extension {
     rules['.cm-ra-h'] = { fontFamily: heading };
     rules['.cm-ra-p'] = { textIndent: `${p.paragraphIndent}em` };
     rules['.cm-ra-head, .cm-ra-pageno'] = { fontFamily: family(p.fonts.heading), fontSize: `${p.captionScale}em` };
-    rules['.cm-ra-code'] = { fontFamily: code, fontSize: `${p.inlineCodeScale}em`, backgroundColor: 'transparent' };
+    rules['.cm-ra-code'] = { fontFamily: code, fontSize: `${p.inlineCodeScale}em`, backgroundColor: tint ?? 'transparent' };
     rules['.cm-ra-body-code'] = { fontFamily: code, fontSize: `${p.codeScale}em`, lineHeight: String(p.codeLineHeight) };
     rules['.cm-ra-tr'] = { fontFamily: body, fontSize: `${p.tableScale}em`, lineHeight: String(p.tableLineHeight) };
     rules['.cm-ra-th'] = { fontFamily: family(p.fonts.heading) };

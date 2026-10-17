@@ -105,13 +105,49 @@ async function goto(n: number): Promise<void> {
   post({ type: 'shown', page: target, pages: doc.numPages });
 }
 
+/**
+ * 拡張から届いたバイト列を Uint8Array に。リモートの窓では postMessage の中身が JSON を通り、Uint8Array が
+ * {"0":37,"1":80,…} の普通のオブジェクトになって届くことがある（pdf.js はそれを「Invalid PDF binary data」で断る）。
+ */
+function toBytes(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  if (Array.isArray(data)) return Uint8Array.from(data as number[]);
+  if (data && typeof data === 'object') {
+    const o = data as Record<string, number>;
+    // Node の Buffer を JSON にした形（{"type":"Buffer","data":[…]}）
+    if (Array.isArray((o as unknown as { data?: unknown }).data)) return Uint8Array.from((o as unknown as { data: number[] }).data);
+    const n = Object.keys(o).length;
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i++) out[i] = o[i];
+    return out;
+  }
+  throw new Error('PDF のバイト列の形が分からない');
+}
+
 window.addEventListener('message', (e: MessageEvent) => {
   const m = e.data as PdfHostMessage;
   void (async () => {
     try {
       if (m.type === 'load') {
         await setupWorker();
-        doc = await pdfjsLib.getDocument({ data: m.data }).promise;
+        let bytes: Uint8Array;
+        if (m.url !== undefined && m.data === undefined) {
+          try {
+            // 全体を 1 回で取る（pdf.js の範囲の読み込みに VS Code の資源の読み込みが応じるかは分からないので使わない）。
+            // 同じ URL の PDF が作り直されたときに古いものを読まないよう、キャッシュを使わない
+            const res = await fetch(m.url, { cache: 'no-store' });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            bytes = new Uint8Array(await res.arrayBuffer());
+          } catch (err) {
+            post({ type: 'fetchFailed', message: err instanceof Error ? err.message : String(err) });
+            return;
+          }
+        } else {
+          bytes = toBytes(m.data);
+        }
+        doc = await pdfjsLib.getDocument({ data: bytes }).promise;
         document.title = m.name;
         await layout();
         await goto(m.page);

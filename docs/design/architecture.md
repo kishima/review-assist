@@ -58,7 +58,7 @@ VS Code の Extension Development Host が使えない環境で作ったので�
 `catalog.yml` は行ベースで読み、glob は `src/core/glob.ts` に 30 行で書いた。
 理由は、原稿を書く人の環境に `npm install` を強いないため。`.vsix` に入る JavaScript は束ねた
 `dist/extension.js`（拡張本体）、`dist/webview.js`（編集画面、0.3.0）、`dist/pdfview.js` と `dist/pdf.worker.min.mjs`（PDF の画面、0.3.0）、
-`dist/cli.js`（本の CI から呼ぶ CLI）だけ（0.3.0 の `.vsix` は 716 KB で、うち pdf.js が圧縮して 520 KB ほど。テスト用の `dist/core.js` は
+`dist/cli.js`（本の CI から呼ぶ CLI）だけ（0.3.0 の `.vsix` は 718 KB で、うち pdf.js が圧縮して 520 KB ほど。テスト用の `dist/core.js` は
 `.vscodeignore` で外す）。
 0.1.0 のときは `dist/*.js` だけで 42 KB だったが、0.2.0 までは `dist/core.js` も入っていた（`.vscodeignore` が外していなかった）。
 
@@ -76,6 +76,8 @@ VS Code の Extension Development Host が使えない環境で作ったので�
   `src/webview/tsconfig.json` だけが DOM の型を持ち、拡張の側の `tsconfig.json` は `src/webview/` を外す
   （拡張の側で DOM を触る書き間違いを型で止める）。`npm run typecheck` は両方を回す
 * 取り消しの履歴（`@codemirror/commands` の `history`）は入れない。取り消しは VS Code の TextDocument のもの（下記）
+* 畳んだ記法の背景（設定 `editor.foldedBackground`）は、`.cm-ra-code`・`.cm-ra-bold`・`.cm-ra-link`・`.cm-ra-faint`・`.cm-ra-chip` に
+  テーマの色を敷く（`themeFor`）
 * 「この節を PDF で開く」の PDF の画面には pdf.js（`pdfjs-dist` の legacy ビルド。VS Code 1.85 の Chromium 114 で動くもの）を使う。
   `dist/pdfview.js`（esm）に束ね、worker（`pdf.worker.min.mjs`）はそのまま置く。webview の中では拡張の資源の URL から直に
   Worker を作れないので、取ってきて blob: の URL にする（CSP は `worker-src blob:` と `connect-src`）
@@ -282,8 +284,10 @@ webview は文字が変わるたびに `planFolds` を回し直す（`vm.re` で
 * **見出しの横に PDF のページ。** 拡張が `headingPages`（`editor-data.ts`、`pdfpages.ts` の `lookupPage`）で、索引にその見出しの鍵が
   そのままある見出しだけページを送る（上の段に落としたページは、その見出しのページではないので出さない）。原稿が未保存か、
   原稿のファイルが PDF より新しいときは薄く出す（`pagesStale`）
-* 「この節を PDF で開く（横に）」は、PDF を拡張の側で `workspace.fs` で読み（WSL・SSH のリモートの窓でもワークスペースの側で読める）、
-  バイト列を webview に送る。webview は pdf.js で全ページの枠を並べ、見えたページから描き、言われたページへ飛ぶ。同じ PDF（更新時刻も同じ）
+* 「この節を PDF で開く（横に）」は、webview に PDF の URL（`webview.asWebviewUri`。PDF のフォルダを `localResourceRoots` に入れる）を渡し、
+  webview が `fetch` で全体を読む。VS Code の資源の読み込みを通るので、WSL・SSH のリモートの窓でも読める。読めなかったときだけ、拡張が
+  `workspace.fs` で読んでバイト列を送る（ちょうどの長さの `Uint8Array` に写して送り、webview は JSON を通った普通のオブジェクトの形も受ける）。
+  最初はバイト列を `postMessage` で送っていたが、リモートの窓では pdf.js が「Invalid PDF binary data」で断った（`../worklog/2026-10-17-v0.3.0-feedback.md`）。webview は pdf.js で全ページの枠を並べ、見えたページから描き、言われたページへ飛ぶ。同じ PDF（更新時刻も同じ）
   なら 2 回目からはページを飛ぶだけ。パネルは原稿の横（`ViewColumn.Beside`、フォーカスは原稿に残す）
 * 紙面からはみ出しそうな所（表の幅、コードの行長）は、既存の診断（`tableWidth`、`maxCodeLineLength`）がそのまま波線で出る
 * `editor.page.enable: false` で段階 2 の見た目（UI の書体、幅の制限なし）に戻る

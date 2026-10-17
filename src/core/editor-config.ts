@@ -51,6 +51,13 @@ export interface PageConfig {
   fonts: PageFonts;
 }
 
+/** 畳んだ記法（インライン命令の中身、参照の札）に敷く薄い背景（記法がどこにあるか分かるように）。 */
+export interface FoldedBackground {
+  enable: boolean;
+  /** CSS の色。既定は VS Code のテーマの色（下）。 */
+  color: string;
+}
+
 export interface EditorConfig {
   /** `@<hidx>` の見せ方。`hide`（印ごと隠す。紙面に出ないため）か `faint`（薄く出す）。 */
   hidx: 'hide' | 'faint';
@@ -58,6 +65,8 @@ export interface EditorConfig {
   headingScale: number[];
   /** 表の列の間（表の文字の半角の個数 = 表の文字の大きさの半分を 1 とする）。 */
   tableGap: number;
+  /** 畳んだ記法の背景。 */
+  foldedBackground: FoldedBackground;
   page: PageConfig;
 }
 
@@ -127,6 +136,9 @@ export function defaultEditorConfig(): EditorConfig {
     headingScale: [1.728, 1.44, 1.2, 1],
     // 表の列の間 11.28pt ÷ 表の文字の半角 3.785pt = 2.98 を丸めた
     tableGap: 3,
+    // VS Code のテーマの「整形済みの文字の背景」（textPreformat.background。Markdown のプレビューやホバーで地の文の中の
+    // `code` に敷く色）。明暗どちらのテーマでも地の文の上で読めるように作られている。古い VS Code に無ければ textCodeBlock.background
+    foldedBackground: { enable: true, color: 'var(--vscode-textPreformat-background, var(--vscode-textCodeBlock-background))' },
     page: defaultPageConfig(),
   };
 }
@@ -160,6 +172,12 @@ export function readEditorConfig(raw: unknown): EditorConfig {
     config.headingScale = r.headingScale as number[];
   }
   if (typeof r.tableGap === 'number' && r.tableGap >= 0) config.tableGap = r.tableGap;
+  if (r.foldedBackground === false) config.foldedBackground.enable = false;
+  else if (r.foldedBackground && typeof r.foldedBackground === 'object') {
+    const f = r.foldedBackground as Record<string, unknown>;
+    if (typeof f.enable === 'boolean') config.foldedBackground.enable = f.enable;
+    if (typeof f.color === 'string' && f.color !== '') config.foldedBackground.color = f.color;
+  }
   if (r.page !== undefined) config.page = readPageConfig(r.page);
   return config;
 }

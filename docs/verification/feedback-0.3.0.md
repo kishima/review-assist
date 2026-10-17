@@ -46,33 +46,62 @@ Liberation Mono）まで落ちて、本文の書体には落ちない。Windows 
 
 ## PDF の画面（`tools/check-pdfview.mjs`）
 
+### 1 回目の形で通ったのに、著者の窓で落ちた理由
+
+1 回目の形は、拡張が `workspace.fs.readFile` で読んだバイト列を `postMessage` で webview に送っていた。著者の窓（Windows の VS Code、WSL のリモート）では
+「PDF を表示できません（Invalid PDF binary data…）」になった。1 回目の試験は、台（`tools/pdf-harness.html`）の中で `fetch` した `Uint8Array` を
+`window.postMessage` で渡していた。同じページの中の `postMessage` は structured clone なので `Uint8Array` は `Uint8Array` のまま届く。
+VS Code のリモートの窓で拡張（WSL）から webview（Windows）へ届くときの直列化を通っていないので、**型が変わる場合を試験が見られなかった**。
+
+### 再現してから直した
+
+試験に渡し方を足した（`--modes=url,bytes,json,nourl`）。`json` は `JSON.parse(JSON.stringify(Uint8Array))`、つまり `{"0":37,"1":80,…}` の普通のオブジェクトで渡す。
+直す前のビルドで回すと、著者の窓と同じ文で落ちた:
+
 ```
-読み込みと最初のページまで 266 ms
-ok   p.37: shown {"type":"shown","page":37,"pages":365}、ページの上端 0px、canvas true、黒い画素 15456
-ok   p.1: shown {"type":"shown","page":1,"pages":365}、ページの上端 0px、canvas true、黒い画素 2437
-ok   p.84: shown {"type":"shown","page":84,"pages":365}、ページの上端 0px、canvas true、黒い画素 10228
+渡し方 bytes:
+  ok   p.37: {"type":"shown","page":37,"pages":365} …
+渡し方 json:
+  FAIL p.37: {"type":"error","message":"Invalid PDF binary data: either TypedArray, string, or array-like object is expected in the data property."}
+渡し方 url:
+  FAIL p.37: {"type":"error","message":"getDocument - no `url` parameter provided."}   （直す前は url を知らない）
 ```
 
-`dist/pdfview.js` と worker を http で配り（`tools/pdf-harness.html`）、拡張と同じく PDF のバイト列（2.9 MB）を `load` で渡した。ページごとに、
-`shown` のページ番号、そのページの要素が窓の上端にあること、canvas が描かれて白でない画素があることを見た。最初の `load` から p.37 が出るまで
-266〜819 ms（1 回目は Chromium の起動直後）。撮った画面で p.84（4.1.2 オブジェクトの割り当て）が出ていることを目で見た。
+直し方: PDF のバイト列は送らない。拡張は `webview.asWebviewUri(pdf)` の URL（PDF のフォルダを `localResourceRoots` に入れる）を渡し、webview が
+`fetch` で全体を読む（VS Code の資源の読み込みを通るので、リモートの窓でも webview から読める）。読めなかったときだけ webview が `fetchFailed` を返し、
+拡張がバイト列を送る。そのときは読んだ Buffer（プールの一部のことがある）を、ちょうどの長さの新しい `Uint8Array` に写して送り、webview は
+`Uint8Array`・`ArrayBuffer`・配列・`{"0":…}` のオブジェクト・`{"type":"Buffer","data":[…]}` のどれでも受ける。直した後（`book_mruby3` の写しで）:
 
-偽の `vscode` モジュール（スクラッチの台。**`book_mruby3` の写しに対して**動かした。下の「起きたこと」）で、拡張の側:
+```
+渡し方 url:    p.37・p.1・p.84 ok（最初のページまで 548 ms）
+渡し方 bytes:  p.37・p.1・p.84 ok
+渡し方 json:   p.37・p.1・p.84 ok（JSON の形を Uint8Array に直してから）
+渡し方 nourl:  ok fetchFailed {"type":"fetchFailed","message":"404 Not Found"}
+```
 
-* 「この節を PDF で開く（横に）」: パネル `reviewAssist.pdf` が `ViewColumn.Beside`・`preserveFocus`・`retainContextWhenHidden` で開き、CSP に `worker-src blob:`
-* `ready` の後に `load`（p.37、2,904,761 バイト、`workspace.fs.readFile` で 1 回）。別の見出しで 2 回目は `goto` だけ（読み直さない）、パネルは 1 枚のまま前に出る
-* 記法を畳む編集画面が前のとき（`activeTextEditor` が無い）も、編集画面の選択の行からページを引いて開く
-* 「この節を PDF で開く（外のビューアで）」は 0.2.0 と同じく `openExternal` に `file:` の URI
+偽の `vscode` モジュール（`book_mruby3` の写しに対して）で、拡張の側:
 
-リモートの窓（WSL）で本当に開けるかは著者の実機で（README の確かめ方 27）。PDF は拡張の側（WSL）の `workspace.fs` で読み、webview にはバイト列で
-送るので、webview（Windows）から PDF のファイルが見える必要は無い。
+* `load` に `url`（`asWebviewUri` の結果）が入り、バイト列は入らない。`workspace.fs.readFile` は呼ばれない。`localResourceRoots` は `dist` と PDF のフォルダ
+* `fetchFailed` を受けると、バイト列を送る。偽の `readFile` はわざと「大きいプールの途中を指す `Uint8Array`」（前後に別の中身）を返すようにしたが、送られたものは
+  `byteOffset` 0、`byteLength` = `buffer.byteLength` = 2,904,761、先頭が `%PDF-`
+* 2 回目（同じ PDF）は `goto` だけ、パネルは 1 枚、外のビューアのコマンドは `openExternal`
+
+**まだ見られないもの**: VS Code の資源の読み込みが、リモートの窓で webview の `fetch` に PDF を返すこと（Playwright の台は http で配っている）。著者の実機で
+（README の確かめ方 27）。返らなくても、バイト列の道（JSON の形も受ける）に落ちる。
 
 ## Unicode の警告
 
 `package.json` の `contributes.configurationDefaults` に `"[review]": { "editor.unicodeHighlight.nonBasicASCII": false, "editor.unicodeHighlight.ambiguousCharacters": false,
 "editor.unicodeHighlight.invisibleCharacters": false }`。VS Code の実機でしか確かめられない（README の確かめ方 28）。
 
+## 畳んだ記法の背景（設定 `editor.foldedBackground`）
+
+`tools/shot-editor.mjs` で `contents/vm.re` の同じ所を、Light Modern と Dark Modern の色（VS Code の `extensions/theme-defaults/themes/*_modern.json` の値を
+台に置いた）で撮った: [`images/tint-light.png`](images/tint-light.png)、[`images/tint-dark.png`](images/tint-dark.png)。`@<code>` の中身、`*1`・`図3.1` の札、
+ブロックの頭の札に薄い背景が付き、明暗どちらでも文字が読める。PDF と並べた画像（[`images/vm-p37.png`](images/vm-p37.png)、[`images/gc-p84.png`](images/gc-p84.png)）も
+背景付きで撮り直した。
+
 ## `.vsix`
 
-`review-assist-0.3.0.vsix`: 13 ファイル、716 KB（直す前の 0.3.0 は 192 KB）。増えたのは PDF の画面の `dist/pdfview.js`（376 KB）と
+`review-assist-0.3.0.vsix`: 13 ファイル、718 KB（直す前の 0.3.0 は 192 KB）。増えたのは PDF の画面の `dist/pdfview.js`（376 KB）と
 `dist/pdf.worker.min.mjs`（1.4 MB）で、圧縮して 520 KB ほど。

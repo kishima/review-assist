@@ -102,6 +102,15 @@ export type ViewMessage =
   | { type: 'log'; level: 'info' | 'error'; message: string };
 
 /** 「この節を PDF で開く」の PDF の画面（0.3.0）: 拡張 → webview。 */
-export type PdfHostMessage = { type: 'load'; data: Uint8Array; page: number; name: string } | { type: 'goto'; page: number };
-/** PDF の画面: webview → 拡張。 */
-export type PdfViewMessage = { type: 'ready' } | { type: 'shown'; page: number; pages: number } | { type: 'error'; message: string };
+// PDF は url（webview.asWebviewUri。VS Code の資源の読み込みを通るので、リモートの窓でも webview から読める）で渡す。
+// 読めなかったときだけ、拡張がバイト列（data）を送る。data はリモートの窓では JSON を通った普通のオブジェクトで届くことがある
+// （{"0":37,"1":80,…}）ので、webview は配列やオブジェクトの形も受ける。
+export type PdfHostMessage =
+  | { type: 'load'; url?: string; data?: Uint8Array | ArrayBuffer | number[] | Record<string, number>; page: number; name: string }
+  | { type: 'goto'; page: number };
+/** PDF の画面: webview → 拡張。`fetchFailed` は url から読めなかった（拡張はバイト列を送り直す）。 */
+export type PdfViewMessage =
+  | { type: 'ready' }
+  | { type: 'shown'; page: number; pages: number }
+  | { type: 'fetchFailed'; message: string }
+  | { type: 'error'; message: string };
